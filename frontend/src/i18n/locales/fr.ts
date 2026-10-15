@@ -1,4 +1,6 @@
 export default {
+  externalChamberCooling: { mode: 'Mode de chambre', heat: 'Chauffer', cool: 'Refroidir', selectVentilationReady: 'Sélectionner Ventilation prête', selectVentilationFan: 'Sélectionner le ventilateur (facultatif)', coolingFanPercentage: 'Ventilateur de refroidissement maximal (%)', coolingNotConfigured: 'Refroidissement non configuré' },
+  externalChamber: { title: 'Chauffages externes de chambre', description: 'Utilisez un contrôleur climatique Home Assistant comme chauffage de chambre.', add: 'Ajouter un chauffage', saved: 'Chauffage externe enregistré', selectPrinter: 'Sélectionner une imprimante', selectClimate: 'Sélectionner une entité climatique', selectDuration: 'Sélectionner une entité de durée', selectHeaterReady: 'Sélectionner l’entité Chauffage prêt', strict: 'Disponibilité stricte', strictDescription: 'Bloque l’envoi de la file si le contrôleur n’est pas prêt.', manualDuration: 'Durée manuelle (minutes)', empty: 'Aucun chauffage externe de chambre configuré.' },
   // Navigation
   nav: {
     printers: 'Imprimantes',
@@ -811,6 +813,11 @@ export default {
     door: {
       open: 'Ouverte',
       closed: 'Fermée',
+    },
+    filamentSensor: {
+      detected: 'Filament détecté dans l’extrudeur',
+      empty: 'Aucun filament détecté dans l’extrudeur',
+      notReported: 'Le capteur de filament de l’extrudeur n’est pas signalé par l’imprimante',
     },
     // Fans
     fans: {

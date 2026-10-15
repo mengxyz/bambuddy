@@ -499,7 +499,8 @@ class AppSettings(BaseModel):
     preheat_filament_targets: str = Field(
         default="",
         description=(
-            "JSON map of normalized filament type → chamber target °C. Empty = bundled defaults "
+            "JSON map of normalized filament type → {mode, target}; legacy numeric targets remain supported. "
+            "Empty = bundled defaults "
             "(PLA/PETG/TPU/PVA: 0, PETG-CF: 40, ABS/ASA: 45, PA/PC/PC-FR: 50, PA-CF: 55, default: 0). "
             "Scheduler picks max across loaded AMS slots; 0 disables chamber phase for that print."
         ),

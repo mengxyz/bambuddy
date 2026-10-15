@@ -40,6 +40,9 @@ export function AddNotificationModal({ provider, onClose }: AddNotificationModal
   const [onBillingChargeFailed, setOnBillingChargeFailed] = useState(provider?.on_billing_charge_failed ?? true);
   const [onPrinterOffline, setOnPrinterOffline] = useState(provider?.on_printer_offline ?? false);
   const [onPrinterError, setOnPrinterError] = useState(provider?.on_printer_error ?? false);
+  const [onExternalChamberFault, setOnExternalChamberFault] = useState(
+    provider?.on_external_chamber_fault ?? true
+  );
   const [onAiFailureDetection, setOnAiFailureDetection] = useState(provider?.on_ai_failure_detection ?? false);
   const [onFilamentLow, setOnFilamentLow] = useState(provider?.on_filament_low ?? false);
   const [onMaintenanceDue, setOnMaintenanceDue] = useState(provider?.on_maintenance_due ?? false);
@@ -209,6 +212,7 @@ export function AddNotificationModal({ provider, onClose }: AddNotificationModal
       on_billing_charge_failed: onBillingChargeFailed,
       on_printer_offline: onPrinterOffline,
       on_printer_error: onPrinterError,
+      on_external_chamber_fault: onExternalChamberFault,
       on_ai_failure_detection: onAiFailureDetection,
       on_filament_low: onFilamentLow,
       on_maintenance_due: onMaintenanceDue,
@@ -725,6 +729,12 @@ export function AddNotificationModal({ provider, onClose }: AddNotificationModal
                   <span className="text-sm text-white">{t('notifications.error')}</span>
                   <Toggle checked={onPrinterError} onChange={setOnPrinterError} />
                 </div>
+                <div className="flex items-center justify-between col-span-2">
+                  <span className="text-sm text-white">
+                    {t('externalChamber.title')} — {t('notifications.error')}
+                  </span>
+                  <Toggle checked={onExternalChamberFault} onChange={setOnExternalChamberFault} />
+                </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-white">{t('notifications.aiFailureDetection')}</span>
                   <Toggle checked={onAiFailureDetection} onChange={setOnAiFailureDetection} />
@@ -788,6 +798,10 @@ export function AddNotificationModal({ provider, onClose }: AddNotificationModal
               if (onFirstLayerComplete) enabledEvents.push({ key: 'on_first_layer_complete', label: t('notifications.firstLayerCompleteLabel') });
               if (onPrinterOffline) enabledEvents.push({ key: 'on_printer_offline', label: t('notifications.offline') });
               if (onPrinterError) enabledEvents.push({ key: 'on_printer_error', label: t('notifications.error') });
+              if (onExternalChamberFault) enabledEvents.push({
+                key: 'on_external_chamber_fault',
+                label: `${t('externalChamber.title')} — ${t('notifications.error')}`,
+              });
               if (onHaSensorAlert) enabledEvents.push({ key: 'on_ha_sensor_alert', label: t('notifications.haSensorAlert') });
               if (onLocationHaSensorAlert) enabledEvents.push({ key: 'on_location_ha_sensor_alert', label: t('notifications.locationHaSensorAlert') });
               if (onAiFailureDetection) enabledEvents.push({ key: 'on_ai_failure_detection', label: t('notifications.aiFailureDetection') });

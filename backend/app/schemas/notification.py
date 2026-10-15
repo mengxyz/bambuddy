@@ -48,6 +48,7 @@ class NotificationProviderBase(BaseModel):
     # Event triggers - printer status
     on_printer_offline: bool = Field(default=False, description="Notify when printer goes offline")
     on_printer_error: bool = Field(default=False, description="Notify on printer errors (AMS, etc.)")
+    on_external_chamber_fault: bool = Field(default=True, description="Notify when an external chamber faults")
     on_ai_failure_detection: bool = Field(
         default=False,
         description="Notify when Obico AI detects a possible print failure (spaghetti)",
@@ -183,6 +184,7 @@ class NotificationProviderUpdate(BaseModel):
     # Event triggers - printer status
     on_printer_offline: bool | None = None
     on_printer_error: bool | None = None
+    on_external_chamber_fault: bool | None = None
     on_ai_failure_detection: bool | None = None
     on_filament_low: bool | None = None
     on_maintenance_due: bool | None = None

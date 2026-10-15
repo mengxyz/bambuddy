@@ -85,6 +85,74 @@ class TestStatusPayload:
         assert payload["state"] == "FINISH"
         assert payload["progress"] == 100
 
+    @pytest.mark.asyncio
+    async def test_status_payload_carries_normalized_ams_and_extruder_state(self):
+        relay = _relay()
+        state = _state()
+        state.tray_now = 2
+        state.ams_status_main = 1
+        state.ams_status_sub = 3
+        state.ams_filament_backup = True
+        state.raw_data = {
+            "ams": [
+                {
+                    "id": "0",
+                    "temp": "28.5",
+                    "humidity_raw": "42",
+                    "tray": [
+                        {
+                            "id": "2",
+                            "exists": True,
+                            "tray_type": "PETG",
+                            "tray_sub_brands": "PETG HF",
+                            "tray_id_name": "Black PETG HF",
+                            "tray_color": "161616FF",
+                            "remain": 73,
+                        }
+                    ],
+                }
+            ],
+            "vt_tray": {"id": 254, "tray_type": "PLA", "tray_color": "FFFFFFFF", "remain": 55},
+        }
+        state.active_extruder = 0
+        state.extruder_filament_sensor_reported = True
+        state.filament_at_extruder = True
+        state.extruder_filament_sensor_raw = 1
+        state.extruder_slots = {
+            0: SimpleNamespace(ams_id=0, slot_id=2, has_filament=True),
+            1: SimpleNamespace(ams_id=None, slot_id=None, has_filament=False),
+        }
+
+        await relay.on_printer_status(3, state, "P1S", "01S00C000000003")
+
+        _, payload, retain = _published(relay)[0]
+        assert retain is True
+        assert payload["ams"]["tray_now"] == 2
+        assert payload["ams"]["status_main"] == 1
+        assert payload["ams"]["filament_backup"] is True
+        assert payload["ams"]["units"][0]["humidity_percent"] == 42
+        tray = payload["ams"]["units"][0]["trays"][0]
+        assert tray == {
+            "id": 2,
+            "global_id": 2,
+            "exists": True,
+            "active": True,
+            "type": "PETG",
+            "sub_brand": "PETG HF",
+            "name": "Black PETG HF",
+            "color": "161616FF",
+            "remaining_percent": 73,
+        }
+        assert payload["ams"]["external_trays"][0]["id"] == 254
+        assert payload["extruder"] == {
+            "active": 0,
+            "filament_present": True,
+            "slots": {
+                "0": {"ams_id": 0, "tray_id": 2, "filament_present": True},
+                "1": {"ams_id": None, "tray_id": None, "filament_present": False},
+            },
+        }
+
 
 class TestPlateClearTopic:
     @pytest.mark.asyncio

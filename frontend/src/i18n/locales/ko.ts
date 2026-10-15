@@ -1,4 +1,6 @@
 export default {
+  externalChamberCooling: { mode: '챔버 모드', heat: '가열', cool: '냉각', selectVentilationReady: '환기 준비 엔티티 선택', selectVentilationFan: '환기 팬 선택(선택 사항)', coolingFanPercentage: '냉각 팬 최대값(%)', coolingNotConfigured: '냉각이 구성되지 않음' },
+  externalChamber: { title: '외부 챔버 히터', description: 'Home Assistant 온도 조절기를 프린터 챔버 히터로 사용합니다.', add: '히터 추가', saved: '외부 챔버 히터를 저장했습니다', selectPrinter: '프린터 선택', selectClimate: '온도 조절 엔티티 선택', selectDuration: '시간 엔티티 선택', selectHeaterReady: '히터 준비 엔티티 선택', strict: '엄격한 준비 상태', strictDescription: '컨트롤러가 준비되지 않으면 대기열 전송을 중지합니다.', manualDuration: '수동 시간(분)', empty: '설정된 외부 챔버 히터가 없습니다.' },
   nav: {
     printers: '프린터',
     archives: '아카이브',
@@ -768,6 +770,11 @@ export default {
     door: {
       open: '열림',
       closed: '닫힘'
+    },
+    filamentSensor: {
+      detected: '압출기에서 필라멘트가 감지됨',
+      empty: '압출기에서 필라멘트가 감지되지 않음',
+      notReported: '프린터가 압출기 필라멘트 센서를 보고하지 않음',
     },
     fans: {
       partCooling: '파트 냉각 팬',

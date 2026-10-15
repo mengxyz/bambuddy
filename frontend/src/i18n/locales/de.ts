@@ -1,4 +1,6 @@
 export default {
+  externalChamberCooling: { mode: 'Bauraummodus', heat: 'Heizen', cool: 'Kühlen', selectVentilationReady: 'Entität „Lüftung bereit“ auswählen', selectVentilationFan: 'Lüftungsventilator auswählen (optional)', coolingFanPercentage: 'Maximaler Kühlventilator (%)', coolingNotConfigured: 'Kühlung nicht konfiguriert' },
+  externalChamber: { title: 'Externe Bauraumheizungen', description: 'Eine Home-Assistant-Klimasteuerung als Bauraumheizung verwenden.', add: 'Heizung hinzufügen', saved: 'Externe Bauraumheizung gespeichert', selectPrinter: 'Drucker auswählen', selectClimate: 'Klima-Entität auswählen', selectDuration: 'Dauer-Entität auswählen', selectHeaterReady: 'Entität „Heizung bereit“ auswählen', strict: 'Strikte Bereitschaft', strictDescription: 'Warteschlangenstart stoppen, wenn die Steuerung nicht bereit ist.', manualDuration: 'Manuelle Dauer (Minuten)', empty: 'Keine externen Bauraumheizungen konfiguriert.' },
   // Navigation
   nav: {
     printers: 'Drucker',
@@ -811,6 +813,11 @@ export default {
     door: {
       open: 'Offen',
       closed: 'Zu',
+    },
+    filamentSensor: {
+      detected: 'Filament am Extruder erkannt',
+      empty: 'Kein Filament am Extruder erkannt',
+      notReported: 'Extruder-Filamentsensor wird vom Drucker nicht gemeldet',
     },
     // Fans
     fans: {

@@ -1,4 +1,6 @@
 export default {
+  externalChamberCooling: { mode: 'Kammarläge', heat: 'Värm', cool: 'Kyl', selectVentilationReady: 'Välj Ventilation klar-entitet', selectVentilationFan: 'Välj ventilationsfläkt (valfritt)', coolingFanPercentage: 'Maximal kylfläkt (%)', coolingNotConfigured: 'Kylning inte konfigurerad' },
+  externalChamber: { title: 'Externa kammarvärmare', description: 'Använd en klimatstyrenhet i Home Assistant som kammarvärmare.', add: 'Lägg till värmare', saved: 'Extern kammarvärmare sparad', selectPrinter: 'Välj skrivare', selectClimate: 'Välj klimatentitet', selectDuration: 'Välj tidsentitet', selectHeaterReady: 'Välj entiteten Värmare redo', strict: 'Strikt beredskap', strictDescription: 'Stoppar köstart när styrenheten inte är redo.', manualDuration: 'Manuell tid (minuter)', empty: 'Inga externa kammarvärmare har konfigurerats.' },
   // Navigation
   nav: {
     printers: 'Skrivare',
@@ -816,6 +818,11 @@ export default {
     door: {
       open: 'Öppen',
       closed: 'Stängd',
+    },
+    filamentSensor: {
+      detected: 'Filament upptäckt vid extrudern',
+      empty: 'Inget filament upptäckt vid extrudern',
+      notReported: 'Extruderns filamentsensor rapporteras inte av skrivaren',
     },
     // Fans
     fans: {

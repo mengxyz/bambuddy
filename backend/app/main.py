@@ -37,6 +37,7 @@ from backend.app.api.routes import (
     firmware,
     github_backup,
     groups,
+    ha_chamber_heaters,
     ha_sensors,
     inventory,
     kprofiles,
@@ -105,6 +106,7 @@ from backend.app.services.bambu_ftp import (
 )
 from backend.app.services.bambu_mqtt import PrinterState
 from backend.app.services.energy_plug import energy_plug_candidates, select_energy_reading
+from backend.app.services.external_chamber import external_chamber_manager
 from backend.app.services.github_backup import github_backup_service
 from backend.app.services.ha_sensor_manager import ha_sensor_manager
 from backend.app.services.homeassistant import homeassistant_service
@@ -9031,7 +9033,11 @@ async def record_printer_sensor_history():
                     if not state or not state.connected:
                         continue
 
-                    temps = getattr(state, "temperatures", None) or {}
+                    temps = dict(getattr(state, "temperatures", None) or {})
+                    external = external_chamber_manager.get_status(printer.id)
+                    if external and external.get("current_temperature") is not None:
+                        temps["chamber"] = external["current_temperature"]
+                        temps["chamber_target"] = external.get("target_temperature")
                     if not isinstance(temps, dict):
                         continue
 
@@ -9969,6 +9975,7 @@ async def lifespan(app: FastAPI):
     # Start the Home Assistant sensor poller (#1148)
     ha_sensor_manager.start()
     location_ha_sensor_manager.start()
+    spawn_background_task(external_chamber_manager.run(), name="external-chamber-poller")
 
     # Resume any pending auto-offs that were interrupted by restart
     await smart_plug_manager.resume_pending_auto_offs()
@@ -10068,6 +10075,7 @@ async def lifespan(app: FastAPI):
     smart_plug_manager.stop_scheduler()
     ha_sensor_manager.stop()
     location_ha_sensor_manager.stop()
+    external_chamber_manager.stop()
     notification_service.stop_digest_scheduler()
     await telegram_reaction_poller.aclose()
     github_backup_service.stop_scheduler()
@@ -10639,6 +10647,7 @@ app.include_router(orca_cloud.router, prefix=app_settings.api_prefix)
 app.include_router(local_presets.router, prefix=app_settings.api_prefix)
 app.include_router(smart_plugs.router, prefix=app_settings.api_prefix)
 app.include_router(ha_sensors.router, prefix=app_settings.api_prefix)
+app.include_router(ha_chamber_heaters.router, prefix=app_settings.api_prefix)
 app.include_router(location_ha_sensors.router, prefix=app_settings.api_prefix)
 app.include_router(print_log.router, prefix=app_settings.api_prefix)
 app.include_router(print_queue.router, prefix=app_settings.api_prefix)

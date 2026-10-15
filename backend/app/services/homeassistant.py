@@ -458,6 +458,76 @@ class HomeAssistantService:
 
         return dict(results)
 
+    async def get_entity_state(self, entity_id: str) -> dict | None:
+        """Return one entity's authoritative HA state, or ``None`` when unreachable."""
+        return (await self.fetch_states([entity_id])).get(entity_id)
+
+    async def call_service(self, domain: str, service: str, data: dict) -> bool:
+        """Call a generic HA service using the configured credentials."""
+        if not self.base_url or not self.token:
+            return False
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(
+                    f"{self.base_url}/api/services/{domain}/{service}",
+                    headers=self._headers(),
+                    json=data,
+                )
+                response.raise_for_status()
+            return True
+        except Exception as e:
+            logger.warning("Failed to call HA service %s.%s: %s", domain, service, e)
+            return False
+
+    async def set_number_value(self, entity_id: str, value: int | float) -> bool:
+        return await self.call_service("number", "set_value", {"entity_id": entity_id, "value": value})
+
+    async def set_climate_temperature(self, entity_id: str, temperature: int | float) -> bool:
+        return await self.call_service(
+            "climate", "set_temperature", {"entity_id": entity_id, "temperature": temperature}
+        )
+
+    async def set_climate_hvac_mode(self, entity_id: str, hvac_mode: str) -> bool:
+        return await self.call_service("climate", "set_hvac_mode", {"entity_id": entity_id, "hvac_mode": hvac_mode})
+
+    async def set_fan_percentage(self, entity_id: str, percentage: int) -> bool:
+        return await self.call_service("fan", "set_percentage", {"entity_id": entity_id, "percentage": percentage})
+
+    async def turn_on_fan(self, entity_id: str) -> bool:
+        return await self.call_service("fan", "turn_on", {"entity_id": entity_id})
+
+    async def turn_off_fan(self, entity_id: str) -> bool:
+        return await self.call_service("fan", "turn_off", {"entity_id": entity_id})
+
+    async def list_chamber_controller_entities(self, url: str, token: str) -> list[dict]:
+        """List climate, duration, readiness, and ventilation candidates for external chambers."""
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.get(
+                    f"{url.rstrip('/')}/api/states", headers={"Authorization": f"Bearer {token}"}
+                )
+                response.raise_for_status()
+            entities = []
+            for entity in response.json():
+                entity_id = entity.get("entity_id", "")
+                domain = entity_id.partition(".")[0]
+                if domain not in {"climate", "number", "binary_sensor", "fan"}:
+                    continue
+                attrs = entity.get("attributes") or {}
+                entities.append(
+                    {
+                        "entity_id": entity_id,
+                        "friendly_name": attrs.get("friendly_name") or entity_id,
+                        "domain": domain,
+                        "state": entity.get("state"),
+                        "attributes": attrs,
+                    }
+                )
+            return sorted(entities, key=lambda item: item["friendly_name"].lower())
+        except Exception as e:
+            logger.warning("Failed to list HA chamber-controller entities: %s", e)
+            return []
+
 
 def as_float(value) -> float | None:
     """Parse a HA state to a number, or None for "unknown"/"unavailable"/text."""

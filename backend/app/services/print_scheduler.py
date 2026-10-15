@@ -2451,6 +2451,9 @@ class PrintScheduler:
                 # heating for a job that isn't happening.
                 if item_printer_id is not None:
                     self._rollback_preheat_pin(item_id, item_printer_id)
+                from backend.app.services.external_chamber import external_chamber_manager
+
+                await external_chamber_manager.cleanup_aborted_dispatch(item_db, item_id)
                 # The cancellation flag only has meaning while this dispatch is
                 # running; drop it so the set cannot grow without bound and a
                 # re-queued item never inherits a stale cancellation.
@@ -5908,12 +5911,46 @@ class PrintScheduler:
         out: dict[str, int] = {}
         for key, value in parsed.items():
             try:
-                out[str(key).upper()] = int(value)
+                raw_target = value.get("target", 0) if isinstance(value, dict) else value
+                out[str(key).upper()] = int(raw_target)
             except (TypeError, ValueError):
                 continue
         if "DEFAULT" not in out:
             out["DEFAULT"] = self.DEFAULT_PREHEAT_FILAMENT_TARGETS["default"]
         return out
+
+    async def _get_preheat_filament_profiles(self, db: AsyncSession) -> dict[str, dict[str, int | str]]:
+        """Return backward-compatible mode/target profiles.
+
+        Legacy numeric values remain HEAT when positive and OFF at zero. New
+        object values carry an explicit ``mode`` and ``target``.
+        """
+        raw = await self._get_setting(db, "preheat_filament_targets")
+        try:
+            parsed = json.loads(raw) if raw else self.DEFAULT_PREHEAT_FILAMENT_TARGETS
+            if not isinstance(parsed, dict):
+                raise ValueError("not an object")
+        except (json.JSONDecodeError, ValueError):
+            parsed = self.DEFAULT_PREHEAT_FILAMENT_TARGETS
+        profiles: dict[str, dict[str, int | str]] = {}
+        for key, value in parsed.items():
+            try:
+                if isinstance(value, dict):
+                    mode = str(value.get("mode") or "off").lower()
+                    target = int(value.get("target") or 0)
+                else:
+                    target = int(value)
+                    mode = "heat" if target > 0 else "off"
+                if mode not in {"off", "heat", "cool"}:
+                    continue
+                if mode == "off":
+                    target = 0
+                profiles[str(key).upper()] = {"mode": mode, "target": target}
+            except (TypeError, ValueError):
+                continue
+        if "DEFAULT" not in profiles:
+            profiles["DEFAULT"] = {"mode": "off", "target": 0}
+        return profiles
 
     @staticmethod
     def _normalize_filament_type(tray_type: str) -> str:
@@ -6023,6 +6060,56 @@ class PrintScheduler:
                     continue
                 best = max(best, self._target_for_tray_type(vt.get("tray_type"), targets))
         return best
+
+    def _derive_chamber_profile(
+        self,
+        printer: Printer,
+        profiles: dict[str, dict[str, int | str]],
+        item: PrintQueueItem | None = None,
+    ) -> tuple[str, int, bool]:
+        """Resolve mode/target for used trays; the bool reports a mode conflict."""
+        state = printer_manager.get_status(printer.id)
+        if state is None:
+            return "off", 0, False
+        raw_data = state.raw_data or {}
+        used = _used_global_tray_ids(item)
+        selected: list[dict[str, int | str]] = []
+
+        def add_profile(tray_type: str | None) -> None:
+            if not self._normalize_filament_type(tray_type or ""):
+                return
+            key = self._resolve_filament_key(tray_type, profiles)
+            selected.append(profiles.get(key or "DEFAULT", profiles["DEFAULT"]))
+
+        ams_list = raw_data.get("ams")
+        if isinstance(ams_list, dict):
+            ams_list = ams_list.get("ams") or []
+        for ams in ams_list if isinstance(ams_list, list) else []:
+            if not isinstance(ams, dict):
+                continue
+            ams_id = _int_or(ams.get("id"), 0)
+            for tray in ams.get("tray") or []:
+                if not isinstance(tray, dict):
+                    continue
+                if used is not None and _global_tray_id(ams_id, _int_or(tray.get("id"), 0)) not in used:
+                    continue
+                add_profile(tray.get("tray_type"))
+        if used is not None and any(t >= _EXTERNAL_TRAY_ID_MIN for t in used):
+            for tray in raw_data.get("vt_tray") or []:
+                if not isinstance(tray, dict):
+                    continue
+                if _int_or(tray.get("id"), _EXTERNAL_TRAY_ID_MIN) in used:
+                    add_profile(tray.get("tray_type"))
+
+        active = [profile for profile in selected if profile["mode"] in {"heat", "cool"}]
+        modes = {str(profile["mode"]) for profile in active}
+        if len(modes) > 1:
+            return "off", 0, True
+        if not active:
+            return "off", 0, False
+        mode = modes.pop()
+        targets = [int(profile["target"]) for profile in active]
+        return mode, (max(targets) if mode == "heat" else min(targets)), False
 
     def _release_keep_warm(self, pid: int) -> None:
         """Release keep-warm on a printer that left the candidate set.
@@ -6166,7 +6253,7 @@ class PrintScheduler:
             await self._get_int_setting(db, "queue_keep_warm_max_minutes", default=_KEEP_WARM_MAX_MINUTES_DEFAULT) * 60
         )
         now_mono = time.monotonic()
-        filament_targets: dict[str, int] | None = None
+        filament_profiles: dict[str, dict[str, int | str]] | None = None
         for pid in warm_candidates:
             entry = self._keep_warm.get(pid)
             # Latched-expired: max-duration timeout already fired for this
@@ -6203,16 +6290,19 @@ class PrintScheduler:
             if bed_target <= 0:
                 continue
             explicit = getattr(next_item, "preheat_chamber_target_override", None)
-            if explicit is not None:
-                chamber_needed = int(explicit) > 0
+            explicit_mode = getattr(next_item, "preheat_chamber_mode_override", None)
+            if explicit is not None or explicit_mode is not None:
+                chamber_needed = int(explicit or 0) > 0 and (explicit_mode or "heat") == "heat"
             else:
-                if filament_targets is None:
-                    filament_targets = await self._get_preheat_filament_targets(db)
+                if filament_profiles is None:
+                    filament_profiles = await self._get_preheat_filament_profiles(db)
                 printer_obj = await self._get_printer(db, pid)
-                chamber_needed = (
-                    printer_obj is not None
-                    and self._derive_chamber_target(printer_obj, filament_targets, next_item) > 0
+                mode, target, conflict = (
+                    self._derive_chamber_profile(printer_obj, filament_profiles, next_item)
+                    if printer_obj is not None
+                    else ("off", 0, False)
                 )
+                chamber_needed = not conflict and mode == "heat" and target > 0
             if not chamber_needed:
                 continue
 
@@ -6318,6 +6408,7 @@ class PrintScheduler:
         chamber_target: float,
         soak_seconds: int,
         tolerance: float = 2.0,
+        mode: str = "heat",
     ) -> int:
         """Return how many seconds of soak time are still needed.
 
@@ -6352,9 +6443,13 @@ class PrintScheduler:
         if now - newest_ts > _CHAMBER_SAMPLE_MAX_GAP_SECONDS:
             return soak_seconds  # stale — no fresh evidence to credit
 
-        threshold = chamber_target - tolerance
-        if newest_temp < threshold:
-            return soak_seconds  # below target right now; nothing is soaked
+        threshold = chamber_target - tolerance if mode == "heat" else chamber_target + tolerance
+
+        def in_range(temperature: float) -> bool:
+            return temperature >= threshold if mode == "heat" else temperature <= threshold
+
+        if not in_range(newest_temp):
+            return soak_seconds
 
         samples = list(hist)
 
@@ -6371,11 +6466,11 @@ class PrintScheduler:
         # zero, and the comparison errs towards calling a dip real.
         i = 0
         while i < len(samples):
-            if samples[i][1] >= threshold:
+            if in_range(samples[i][1]):
                 i += 1
                 continue
             j = i
-            while j < len(samples) and samples[j][1] < threshold:
+            while j < len(samples) and not in_range(samples[j][1]):
                 j += 1
             # `newest_temp >= threshold` was checked above, so j is in range.
             opened_at = samples[i - 1][0] if i > 0 else samples[i][0]
@@ -6534,15 +6629,34 @@ class PrintScheduler:
         #      even when an ASA spool is sitting in another slot of the same
         #      AMS (#2886).
         explicit_target = getattr(item, "preheat_chamber_target_override", None)
-        if explicit_target is not None and explicit_target > 0:
+        explicit_mode = getattr(item, "preheat_chamber_mode_override", None)
+        if explicit_mode == "off" or explicit_target == 0:
+            chamber_mode = "off"
+            chamber_target = 0
+            chamber_source = "item-override-zero"
+        elif explicit_target is not None and explicit_target > 0:
+            # A mode-less target is a legacy queue row and retains HEAT behavior.
+            chamber_mode = explicit_mode or "heat"
             chamber_target = int(explicit_target)
             chamber_source = "item-override"
-        elif explicit_target == 0:
-            chamber_target = 0  # explicit 0 means "no chamber, even if filament wants it"
-            chamber_source = "item-override-zero"
+        elif explicit_mode in {"heat", "cool"}:
+            item.status = "failed"
+            item.error_message = f"A chamber target is required when {explicit_mode.upper()} is selected"
+            item.completed_at = datetime.now(timezone.utc)
+            await db.commit()
+            return False
         else:
-            targets = await self._get_preheat_filament_targets(db)
-            chamber_target = self._derive_chamber_target(printer, targets, item)
+            profiles = await self._get_preheat_filament_profiles(db)
+            chamber_mode, chamber_target, mode_conflict = self._derive_chamber_profile(printer, profiles, item)
+            if mode_conflict:
+                item.status = "failed"
+                item.error_message = (
+                    "Loaded filament profiles request both chamber HEAT and COOL; edit the queue item "
+                    "and choose an explicit chamber mode and target"
+                )
+                item.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+                return False
             chamber_source = "filament-map"
 
         # Nothing to preheat *for*. A zero that came out of the filament map is
@@ -6569,6 +6683,66 @@ class PrintScheduler:
             )
             self._preheat_flap_to_cooling(item.id, printer)
             return True
+
+        # An enabled HA controller is the effective chamber heater for this
+        # printer. Its readiness policy is resolved before touching the bed so
+        # non-strict means "skip the complete preheat stage", not "heat the bed
+        # anyway and hope".
+        from backend.app.models.external_chamber_binding import ExternalChamberBinding
+        from backend.app.services.external_chamber import LEASE_MINUTES, external_chamber_manager
+
+        external_candidate = await db.scalar(
+            select(ExternalChamberBinding).where(
+                ExternalChamberBinding.printer_id == printer.id,
+                ExternalChamberBinding.enabled.is_(True),
+            )
+        )
+        # A number of focused scheduler tests use a deliberately loose
+        # AsyncMock session whose unconfigured scalar() result is another
+        # mock. Treat only an ORM row as a configured binding.
+        external_binding = external_candidate if isinstance(external_candidate, ExternalChamberBinding) else None
+        external_active = False
+        if chamber_mode == "cool" and external_binding is None:
+            if explicit_mode == "cool":
+                item.status = "failed"
+                item.error_message = "Chamber COOL was requested, but this printer has no external chamber controller"
+                item.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+                return False
+            logger.info(
+                "Queue item %s: COOL profile skipped because printer %s has no external chamber controller",
+                item.id,
+                printer.id,
+            )
+            return True
+        if external_binding is not None and chamber_target > 0:
+            if chamber_target > 60:
+                external_error = f"External chamber target {chamber_target}°C exceeds the controller maximum of 60°C"
+                external_ok = False
+            else:
+                external_ok, external_error = await external_chamber_manager.command_mode(
+                    db,
+                    external_binding,
+                    chamber_mode,
+                    chamber_target,
+                    LEASE_MINUTES,
+                    queue_item_id=item.id,
+                )
+            if not external_ok:
+                if external_binding.strict:
+                    item.status = "failed"
+                    item.error_message = external_error or "External chamber controller is unavailable"
+                    item.completed_at = datetime.now(timezone.utc)
+                    await db.commit()
+                    logger.warning("Queue item %s failed before upload: %s", item.id, item.error_message)
+                    return False
+                logger.warning(
+                    "Queue item %s: external chamber preheat skipped (non-strict): %s",
+                    item.id,
+                    external_error,
+                )
+                return True
+            external_active = True
 
         bed_target = int(archive.bed_temperature) if archive and archive.bed_temperature else 0
         if bed_target <= 0:
@@ -6600,8 +6774,8 @@ class PrintScheduler:
             return True
 
         model = printer.model or ""
-        has_heater = supports_chamber_heater(model)
-        has_sensor = supports_chamber_temp(model)
+        has_heater = supports_chamber_heater(model) or external_active
+        has_sensor = supports_chamber_temp(model) or external_active
         do_chamber = chamber_target > 0 and (has_heater or has_sensor)
 
         # Fast path: if the chamber has been continuously above target for at
@@ -6609,14 +6783,15 @@ class PrintScheduler:
         # entire preheat stage. Typical case: keep-warm held the bed between
         # consecutive same-material prints and the chamber never dropped.
         if do_chamber and has_sensor and soak_seconds > 0:
-            remaining = self._chamber_soak_remaining(printer.id, float(chamber_target), soak_seconds)
+            remaining = self._chamber_soak_remaining(printer.id, float(chamber_target), soak_seconds, mode=chamber_mode)
             if remaining == 0:
                 cur = printer_manager.get_status(printer.id)
                 if cur:
                     cur_temps = cur.temperatures or {}
-                    if (
-                        float(cur_temps.get("bed", 0) or 0) >= bed_target - 2.0
-                        and float(cur_temps.get("chamber", 0) or 0) >= chamber_target - 2.0
+                    if float(cur_temps.get("bed", 0) or 0) >= bed_target - 2.0 and (
+                        float(cur_temps.get("chamber", 0) or 0) >= chamber_target - 2.0
+                        if chamber_mode == "heat"
+                        else float(cur_temps.get("chamber", 0) or 0) <= chamber_target + 2.0
                     ):
                         logger.info(
                             "Queue item %s: preheat skipped — chamber has been above %d°C for ≥%ds "
@@ -6637,18 +6812,21 @@ class PrintScheduler:
                             logger.warning("Queue item %s: fast-path bed M140 failed: %s", item.id, exc)
                         if supports_airduct(model):
                             cur_airduct = getattr(cur, "airduct_mode", None)
-                            if cur_airduct != _AIRDUCT_MODE_HEATING:
+                            desired_fast_airduct = (
+                                _AIRDUCT_MODE_HEATING if chamber_mode == "heat" else _AIRDUCT_MODE_COOLING
+                            )
+                            if cur_airduct != desired_fast_airduct:
                                 try:
-                                    client.set_airduct_mode("heating")
+                                    client.set_airduct_mode("heating" if chamber_mode == "heat" else "cooling")
                                     # Only undo what we can see we replaced. `None`
                                     # means no mode has been observed yet, and
                                     # rolling that back to cooling would assert a
                                     # state the printer never reported.
-                                    if cur_airduct == _AIRDUCT_MODE_COOLING:
+                                    if chamber_mode == "heat" and cur_airduct == _AIRDUCT_MODE_COOLING:
                                         pin.add("airduct")
                                 except Exception as exc:
                                     logger.warning("Queue item %s: fast-path airduct failed: %s", item.id, exc)
-                        if has_heater:
+                        if has_heater and not external_active:
                             try:
                                 client.set_chamber_temperature(chamber_target)
                                 pin.add("chamber")
@@ -6657,10 +6835,11 @@ class PrintScheduler:
                         return True
 
         logger.info(
-            "Queue item %s: preheat starting — bed=%d°C chamber_target=%d°C (source=%s override=%s "
+            "Queue item %s: preheat starting — bed=%d°C chamber=%s/%d°C (source=%s override=%s "
             "model=%s has_heater=%s has_sensor=%s) max_wait=%ds soak=%ds",
             item.id,
             bed_target,
+            chamber_mode,
             chamber_target if do_chamber else 0,
             chamber_source,
             override,
@@ -6701,7 +6880,7 @@ class PrintScheduler:
         # command idempotent — no MQTT chatter when the flap is already where
         # we want it.
         if supports_airduct(model):
-            desired_airduct = "heating" if chamber_target > 0 else "cooling"
+            desired_airduct = "heating" if chamber_target > 0 and chamber_mode == "heat" else "cooling"
             desired_id = _AIRDUCT_MODE_HEATING if desired_airduct == "heating" else _AIRDUCT_MODE_COOLING
             current_state = printer_manager.get_status(printer.id)
             current_airduct = getattr(current_state, "airduct_mode", None) if current_state else None
@@ -6721,7 +6900,7 @@ class PrintScheduler:
                         exc,
                     )
 
-        if do_chamber and has_heater:
+        if do_chamber and has_heater and not external_active:
             try:
                 client.set_chamber_temperature(chamber_target)
                 pin.add("chamber")
@@ -6755,7 +6934,54 @@ class PrintScheduler:
                 logger.warning("Queue item %s: preheat lost state during wait", item.id)
                 break
 
-            temps = state.temperatures or {}
+            temps = dict(state.temperatures or {})
+            if external_active:
+                external_status = external_chamber_manager.get_status(printer.id) or {}
+                external_target_matches = external_status.get("target_temperature") is not None and int(
+                    external_status["target_temperature"]
+                ) == int(external_binding.owned_target or -1)
+                external_mode_ready = (
+                    external_status.get("heater_ready") is True
+                    if chamber_mode == "heat"
+                    else external_status.get("ventilation_ready") is True
+                )
+                external_fan_matches = (
+                    True
+                    if chamber_mode != "cool" or not external_binding.ventilation_fan_entity_id
+                    else external_status.get("fan_percentage") == external_binding.owned_fan_percentage
+                )
+                external_session_valid = (
+                    external_mode_ready
+                    and external_status.get("mode") == chamber_mode
+                    and external_target_matches
+                    and external_fan_matches
+                )
+                if not external_session_valid:
+                    reason = "External chamber readiness was lost before print start"
+                    if external_mode_ready:
+                        reason = "External chamber was changed manually before print start"
+                    if external_binding.strict:
+                        item.status = "failed"
+                        item.error_message = reason
+                        item.completed_at = datetime.now(timezone.utc)
+                        await db.commit()
+                        logger.warning("Queue item %s failed before upload: %s", item.id, reason)
+                        return False
+                    if external_mode_ready:
+                        # Mode/target/fan changed: this is manual takeover, so
+                        # relinquish without overwriting the user's command.
+                        await external_chamber_manager.relinquish(db, external_binding)
+                    else:
+                        # Readiness loss is not takeover. Stop the session when
+                        # possible; if HA is unreachable, keep ownership in a
+                        # retryable stopping state for the background poller.
+                        external_binding.lifecycle_state = "stopping"
+                        await db.commit()
+                        await external_chamber_manager.command_off(db, external_binding)
+                    logger.warning("Queue item %s: preheat skipped (non-strict): %s", item.id, reason)
+                    return True
+                if external_status.get("current_temperature") is not None:
+                    temps["chamber"] = external_status["current_temperature"]
             bed_now = float(temps.get("bed", 0) or 0)
             chamber_now = float(temps.get("chamber", 0) or 0)
             bed_ok = bed_now >= bed_target - BED_TOLERANCE
@@ -6765,7 +6991,11 @@ class PrintScheduler:
             elif not has_sensor:
                 chamber_ok = True  # P1S etc — can't read, rely on soak timer only
             else:
-                chamber_ok = chamber_now >= chamber_target - CHAMBER_TOLERANCE
+                chamber_ok = (
+                    chamber_now >= chamber_target - CHAMBER_TOLERANCE
+                    if chamber_mode == "heat"
+                    else chamber_now <= chamber_target + CHAMBER_TOLERANCE
+                )
 
             if bed_ok and chamber_ok:
                 logger.info(
@@ -6796,13 +7026,15 @@ class PrintScheduler:
 
         if soak_seconds > 0:
             if do_chamber and has_sensor:
-                remaining = self._chamber_soak_remaining(printer.id, float(chamber_target), soak_seconds)
+                remaining = self._chamber_soak_remaining(
+                    printer.id, float(chamber_target), soak_seconds, mode=chamber_mode
+                )
             else:
                 remaining = soak_seconds  # no sensor — can't verify history, run full soak
             if remaining > 0:
                 logger.info(
                     "Queue item %s: preheat soak — holding for %ds (of %ds configured; chamber "
-                    "has been above target for ~%ds already)",
+                    "has been in range for ~%ds already)",
                     item.id,
                     remaining,
                     soak_seconds,
@@ -6816,7 +7048,7 @@ class PrintScheduler:
                     return False
             else:
                 logger.info(
-                    "Queue item %s: preheat soak skipped — chamber has been above %d°C for ≥%ds",
+                    "Queue item %s: preheat soak skipped — chamber has been in range of %d°C for ≥%ds",
                     item.id,
                     chamber_target,
                     soak_seconds,
@@ -8242,6 +8474,9 @@ class PrintScheduler:
             # `_dispatch_one`'s finally from unwinding a live print.
             self._preheat_pin.pop(item.printer_id, None)
             self._preheat_pin_bed.pop(item.printer_id, None)
+            from backend.app.services.external_chamber import external_chamber_manager
+
+            await external_chamber_manager.mark_print_started(db, item.id)
             logger.info("Queue item %s: Print started successfully - %s", item.id, filename)
             # No dispatch-toast event here: the legacy bg-dispatch path kept
             # status='processing' from upload start until the printer acked

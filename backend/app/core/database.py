@@ -1879,6 +1879,20 @@ async def run_migrations(conn):
 
     # Migration: Add on_print_stopped column to notification_providers
     await _safe_execute(conn, "ALTER TABLE notification_providers ADD COLUMN on_print_stopped BOOLEAN DEFAULT 1")
+    await _safe_execute(
+        conn, "ALTER TABLE notification_providers ADD COLUMN on_external_chamber_fault BOOLEAN DEFAULT 1"
+    )
+    await _safe_execute(conn, "ALTER TABLE external_chamber_bindings ADD COLUMN heater_ready_entity_id VARCHAR(255)")
+    await _safe_execute(
+        conn, "ALTER TABLE external_chamber_bindings ADD COLUMN ventilation_ready_entity_id VARCHAR(255)"
+    )
+    await _safe_execute(conn, "ALTER TABLE external_chamber_bindings ADD COLUMN ventilation_fan_entity_id VARCHAR(255)")
+    await _safe_execute(
+        conn, "ALTER TABLE external_chamber_bindings ADD COLUMN cooling_fan_percentage INTEGER NOT NULL DEFAULT 70"
+    )
+    await _safe_execute(conn, "ALTER TABLE external_chamber_bindings ADD COLUMN owned_mode VARCHAR(8)")
+    await _safe_execute(conn, "ALTER TABLE external_chamber_bindings ADD COLUMN owned_fan_percentage INTEGER")
+    await _safe_execute(conn, "ALTER TABLE print_queue ADD COLUMN preheat_chamber_mode_override VARCHAR(8)")
 
     # Migration: Add source_3mf_path column to print_archives
     await _safe_execute(conn, "ALTER TABLE print_archives ADD COLUMN source_3mf_path VARCHAR(500)")

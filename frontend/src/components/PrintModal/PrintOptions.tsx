@@ -69,7 +69,18 @@ export function PrintOptionsPanel({
       preheat_override: next,
       // Clearing override→off also clears the chamber-target override so the
       // backend doesn't carry a stale value if the user re-enables later.
-      ...(next === 'off' ? { preheat_chamber_target_override: null } : {}),
+      ...(next === 'off' ? { preheat_chamber_target_override: null, preheat_chamber_mode_override: null } : {}),
+    });
+  };
+
+  const handleChamberMode = (mode: 'heat' | 'cool' | 'off' | null) => {
+    onChange({
+      ...options,
+      preheat_chamber_mode_override: mode,
+      ...(mode === 'off' ? { preheat_chamber_target_override: 0 } : {}),
+      ...(mode === null && options.preheat_chamber_target_override === 0
+        ? { preheat_chamber_target_override: null }
+        : {}),
     });
   };
 
@@ -184,13 +195,41 @@ export function PrintOptionsPanel({
               ))}
             </div>
             {options.preheat_override !== 'off' && (
+              <div className="mb-2">
+                <label className="mb-1 block text-xs text-bambu-gray">
+                  {t('externalChamberCooling.mode')}
+                </label>
+                <div className="grid grid-cols-4 gap-1">
+                  {([
+                    { value: null, label: t('settings.calibrationMode_auto') },
+                    { value: 'heat' as const, label: t('externalChamberCooling.heat') },
+                    { value: 'cool' as const, label: t('externalChamberCooling.cool') },
+                    { value: 'off' as const, label: t('common.off') },
+                  ]).map(({ value, label }) => (
+                    <button
+                      key={value ?? 'auto'}
+                      type="button"
+                      onClick={() => handleChamberMode(value)}
+                      className={`rounded px-2 py-1.5 text-xs transition-colors ${
+                        options.preheat_chamber_mode_override === value
+                          ? 'bg-bambu-green text-white'
+                          : 'bg-bambu-dark-tertiary text-bambu-gray hover:text-white'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {options.preheat_override !== 'off' && options.preheat_chamber_mode_override !== 'off' && (
               <div className="flex items-center gap-2">
                 <label className="text-xs text-bambu-gray flex-1">
                   {t('settings.preheatTargetOverride', 'Chamber target override (°C, blank = filament default)')}
                 </label>
                 <input
                   type="number"
-                  min={0}
+                  min={options.preheat_chamber_mode_override === 'cool' ? 20 : 0}
                   max={MAX_CHAMBER_TEMP_C}
                   step={1}
                   value={options.preheat_chamber_target_override ?? ''}

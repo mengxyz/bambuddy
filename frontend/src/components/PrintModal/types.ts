@@ -74,6 +74,7 @@ export interface PrintOptions {
   // derivation with an explicit °C target.
   preheat_override: PreheatOverride;
   preheat_chamber_target_override: number | null;
+  preheat_chamber_mode_override: 'heat' | 'cool' | 'off' | null;
 }
 
 /**
@@ -89,6 +90,7 @@ export const DEFAULT_PRINT_OPTIONS: PrintOptions = {
   confirm_outcome: false,
   preheat_override: 'inherit',
   preheat_chamber_target_override: null,
+  preheat_chamber_mode_override: null,
 };
 
 /**

@@ -1,4 +1,6 @@
 export default {
+  externalChamberCooling: { mode: 'Режим камеры', heat: 'Нагрев', cool: 'Охлаждение', selectVentilationReady: 'Выбрать датчик готовности вентиляции', selectVentilationFan: 'Выбрать вентилятор (необязательно)', coolingFanPercentage: 'Максимум вентилятора охлаждения (%)', coolingNotConfigured: 'Охлаждение не настроено' },
+  externalChamber: { title: 'Внешние нагреватели камеры', description: 'Используйте климатический контроллер Home Assistant для нагрева камеры.', add: 'Добавить нагреватель', saved: 'Внешний нагреватель сохранён', selectPrinter: 'Выбрать принтер', selectClimate: 'Выбрать климатическую сущность', selectDuration: 'Выбрать сущность длительности', selectHeaterReady: 'Выбрать сущность готовности нагревателя', strict: 'Строгая готовность', strictDescription: 'Останавливает запуск очереди, если контроллер не готов.', manualDuration: 'Ручная длительность (минуты)', empty: 'Внешние нагреватели камеры не настроены.' },
   nav: {
     printers: "Принтеры",
     archives: "Архив",
@@ -773,6 +775,11 @@ export default {
     door: {
       open: "Открыта",
       closed: "Закрыта",
+    },
+    filamentSensor: {
+      detected: "Филамент обнаружен в экструдере",
+      empty: "Филамент в экструдере не обнаружен",
+      notReported: "Принтер не сообщает о датчике филамента экструдера",
     },
     fans: {
       partCooling: "Вентилятор обдува модели",

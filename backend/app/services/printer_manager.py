@@ -1520,7 +1520,9 @@ def printer_state_to_dict(
     temperatures = state.temperatures
     if not supports_chamber_temp(model):
         temperatures = {
-            k: v for k, v in temperatures.items() if k not in ("chamber", "chamber_target", "chamber_heating")
+            k: v
+            for k, v in temperatures.items()
+            if k not in ("chamber", "chamber_target", "chamber_heating", "chamber_cooling")
         }
 
     result = {
@@ -1557,6 +1559,12 @@ def printer_state_to_dict(
         "ams_status_main": state.ams_status_main,
         "ams_status_sub": state.ams_status_sub,
         "tray_now": state.tray_now,
+        # Physical toolhead filament switch (not AMS slot presence). The P1S
+        # publishes hw_switch_state=0/1. Keep unknown distinct from empty, and
+        # suppress the last physical reading while the printer is offline.
+        "extruder_filament_sensor_reported": state.extruder_filament_sensor_reported,
+        "filament_at_extruder": state.filament_at_extruder if state.connected else None,
+        "extruder_filament_sensor_raw": state.extruder_filament_sensor_raw,
         # Runout / filament-replacement guidance (#2587). Only meaningful while
         # PAUSED — resolve the firmware's target/previous slot to a global tray ID
         # so the AMS graphic can highlight the slot the print now expects and name
@@ -1685,6 +1693,14 @@ def printer_state_to_dict(
         # "Clear Plate" button only appears when the 30 s REST fallback poll runs.
         "awaiting_plate_clear": printer_manager.is_awaiting_plate_clear(printer_id) if printer_id else False,
     }
+
+    # HA state is polled separately from printer MQTT. Overlay its cached
+    # effective chamber fields here so WebSocket consumers see the same shape
+    # as the REST status endpoint.
+    if printer_id is not None:
+        from backend.app.services.external_chamber import external_chamber_manager
+
+        external_chamber_manager.overlay(printer_id, result)
     # Add cover URL if there's an active print and printer_id is provided
     # Include PAUSE state so skip objects modal can show cover
     if printer_id and state.state in ("RUNNING", "PAUSE") and state.gcode_file:

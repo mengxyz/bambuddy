@@ -62,10 +62,14 @@ class Printer(Base):
         back_populates="printer", cascade="all, delete-orphan"
     )
     ha_sensors: Mapped[list["PrinterHASensor"]] = relationship(back_populates="printer", cascade="all, delete-orphan")
+    external_chamber_binding: Mapped["ExternalChamberBinding | None"] = relationship(
+        back_populates="printer", cascade="all, delete-orphan", uselist=False
+    )
 
 
 from backend.app.models.ams_history import AMSSensorHistory  # noqa: E402
 from backend.app.models.archive import PrintArchive  # noqa: E402
+from backend.app.models.external_chamber_binding import ExternalChamberBinding  # noqa: E402
 from backend.app.models.kprofile_note import KProfileNote  # noqa: E402
 from backend.app.models.maintenance import PrinterMaintenance  # noqa: E402
 from backend.app.models.notification import NotificationProvider  # noqa: E402

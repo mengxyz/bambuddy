@@ -1,9 +1,10 @@
 import { useTranslation } from 'react-i18next';
 import {
-  DEFAULT_PREHEAT_FILAMENT_TARGETS,
+  DEFAULT_PREHEAT_FILAMENT_PROFILES,
   PREHEAT_FILAMENT_ORDER,
-  parsePreheatFilamentTargets,
-  serializePreheatFilamentTargets,
+  parsePreheatFilamentProfiles,
+  serializePreheatFilamentProfiles,
+  type ChamberProfileMode,
 } from '../utils/preheatFilamentTargets';
 import { MAX_CHAMBER_TEMP_C } from '../utils/printer';
 
@@ -22,18 +23,27 @@ interface Props {
 // across resets.
 export function PreheatFilamentTargetsEditor({ value, onChange, disabled = false }: Props) {
   const { t } = useTranslation();
-  const map = parsePreheatFilamentTargets(value);
+  const map = parsePreheatFilamentProfiles(value);
 
-  const updateOne = (key: string, next: number) => {
+  const updateTarget = (key: string, next: number) => {
     const clamped = Math.max(0, Math.min(MAX_CHAMBER_TEMP_C, Math.round(next)));
-    const updated = { ...map, [key]: clamped };
-    onChange(serializePreheatFilamentTargets(updated));
+    const current = map[key] ?? DEFAULT_PREHEAT_FILAMENT_PROFILES[key] ?? { mode: 'off', target: 0 };
+    onChange(serializePreheatFilamentProfiles({ ...map, [key]: { ...current, target: clamped } }));
+  };
+
+  const updateMode = (key: string, mode: ChamberProfileMode) => {
+    const current = map[key] ?? DEFAULT_PREHEAT_FILAMENT_PROFILES[key] ?? { mode: 'off', target: 0 };
+    const defaultTarget = mode === 'heat' ? 40 : mode === 'cool' ? 35 : 0;
+    onChange(serializePreheatFilamentProfiles({
+      ...map,
+      [key]: { mode, target: mode === 'off' ? 0 : current.target || defaultTarget },
+    }));
   };
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1.5">
       {PREHEAT_FILAMENT_ORDER.map((key) => {
-        const current = map[key] ?? DEFAULT_PREHEAT_FILAMENT_TARGETS[key] ?? 0;
+        const current = map[key] ?? DEFAULT_PREHEAT_FILAMENT_PROFILES[key] ?? { mode: 'off', target: 0 };
         const label = key === 'default'
           ? t('settings.preheatFilamentTargetsDefaultRow', 'Other / unmapped')
           : key;
@@ -43,14 +53,24 @@ export function PreheatFilamentTargetsEditor({ value, onChange, disabled = false
               {label}
             </span>
             <div className="flex items-center gap-1">
+              <select
+                value={current.mode}
+                onChange={(event) => updateMode(key, event.target.value as ChamberProfileMode)}
+                disabled={disabled}
+                className="rounded border border-bambu-dark-tertiary bg-bambu-dark px-1 py-1 text-xs text-white focus:border-bambu-green focus:outline-none disabled:opacity-50"
+              >
+                <option value="off">{t('common.off')}</option>
+                <option value="heat">{t('externalChamberCooling.heat')}</option>
+                <option value="cool">{t('externalChamberCooling.cool')}</option>
+              </select>
               <input
                 type="number"
-                min={0}
                 max={MAX_CHAMBER_TEMP_C}
                 step={1}
-                value={current}
-                onChange={(e) => updateOne(key, parseInt(e.target.value, 10) || 0)}
-                disabled={disabled}
+                value={current.target}
+                min={current.mode === 'cool' ? 20 : current.mode === 'heat' ? 40 : 0}
+                onChange={(e) => updateTarget(key, parseInt(e.target.value, 10) || 0)}
+                disabled={disabled || current.mode === 'off'}
                 className="w-16 px-2 py-1 bg-bambu-dark border border-bambu-dark-tertiary rounded text-white text-xs text-right focus:outline-none focus:border-bambu-green disabled:opacity-50"
               />
               <span className="text-xs text-bambu-gray">°C</span>

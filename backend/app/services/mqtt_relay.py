@@ -15,9 +15,120 @@ from typing import Any
 
 import paho.mqtt.client as mqtt
 
+from backend.app.utils.ams_humidity import ams_humidity_percent
 from backend.app.utils.paho_teardown import retire_paho_client
 
 logger = logging.getLogger(__name__)
+
+
+def _relay_int(value: Any, default: int = 0) -> int:
+    """Parse printer JSON integers without letting one malformed field drop a relay update."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _relay_global_tray_id(ams_id: int, tray_id: int) -> int:
+    """Return Bambuddy's stable global tray id for regular, HT, and external slots."""
+    if ams_id >= 255:
+        return 254 + tray_id
+    if ams_id >= 128:
+        return ams_id
+    return ams_id * 4 + tray_id
+
+
+def _build_ams_relay_status(state: Any) -> dict:
+    """Build a compact, stable AMS snapshot suitable for small MQTT consumers."""
+    raw_data = getattr(state, "raw_data", None) or {}
+    tray_now = _relay_int(getattr(state, "tray_now", 255), 255)
+    units = []
+
+    raw_units = raw_data.get("ams")
+    if isinstance(raw_units, list):
+        for raw_unit in raw_units:
+            if not isinstance(raw_unit, dict):
+                continue
+            ams_id = _relay_int(raw_unit.get("id"))
+            trays = []
+            raw_trays = raw_unit.get("tray")
+            if isinstance(raw_trays, list):
+                for raw_tray in raw_trays:
+                    if not isinstance(raw_tray, dict):
+                        continue
+                    tray_id = _relay_int(raw_tray.get("id"))
+                    global_id = _relay_global_tray_id(ams_id, tray_id)
+                    trays.append(
+                        {
+                            "id": tray_id,
+                            "global_id": global_id,
+                            "exists": raw_tray.get("exists"),
+                            "active": global_id == tray_now,
+                            "type": raw_tray.get("tray_type") or "",
+                            "sub_brand": raw_tray.get("tray_sub_brands") or "",
+                            "name": raw_tray.get("tray_id_name") or "",
+                            "color": raw_tray.get("tray_color") or "",
+                            "remaining_percent": _relay_int(raw_tray.get("remain")),
+                        }
+                    )
+
+            humidity = ams_humidity_percent(raw_unit)
+            units.append(
+                {
+                    "id": ams_id,
+                    "temperature": raw_unit.get("temp"),
+                    "humidity_percent": round(humidity) if humidity is not None else None,
+                    "is_ams_ht": len(trays) == 1,
+                    "trays": trays,
+                }
+            )
+
+    external_trays = []
+    raw_external = raw_data.get("vt_tray")
+    if isinstance(raw_external, dict):
+        raw_external = [raw_external]
+    if isinstance(raw_external, list):
+        for raw_tray in raw_external:
+            if not isinstance(raw_tray, dict):
+                continue
+            tray_id = _relay_int(raw_tray.get("id"), 254)
+            external_trays.append(
+                {
+                    "id": tray_id,
+                    "active": tray_id == tray_now,
+                    "type": raw_tray.get("tray_type") or "",
+                    "sub_brand": raw_tray.get("tray_sub_brands") or "",
+                    "name": raw_tray.get("tray_id_name") or "",
+                    "color": raw_tray.get("tray_color") or "",
+                    "remaining_percent": _relay_int(raw_tray.get("remain")),
+                }
+            )
+
+    return {
+        "tray_now": tray_now,
+        "status_main": _relay_int(getattr(state, "ams_status_main", 0)),
+        "status_sub": _relay_int(getattr(state, "ams_status_sub", 0)),
+        "filament_backup": getattr(state, "ams_filament_backup", None),
+        "units": units,
+        "external_trays": external_trays,
+    }
+
+
+def _build_extruder_relay_status(state: Any) -> dict:
+    """Build physical filament-sensor and per-hotend feed state."""
+    slots = {}
+    for extruder_id, slot in (getattr(state, "extruder_slots", None) or {}).items():
+        slots[str(extruder_id)] = {
+            "ams_id": getattr(slot, "ams_id", None),
+            "tray_id": getattr(slot, "slot_id", None),
+            "filament_present": bool(getattr(slot, "has_filament", False)),
+        }
+    connected = bool(getattr(state, "connected", False))
+    return {
+        "active": _relay_int(getattr(state, "active_extruder", 0)),
+        "filament_present": getattr(state, "filament_at_extruder", None) if connected else None,
+        "slots": slots,
+    }
 
 
 class MQTTRelayService:
@@ -286,6 +397,11 @@ class MQTTRelayService:
             "heatbreak_fan_speed": state.heatbreak_fan_speed,
             "left_aux_fan_speed": state.left_aux_fan_speed,
             "exhaust_fan_present": state.exhaust_fan_present,
+            # Compact snapshots for dashboards and embedded displays. These are
+            # deliberately normalized rather than forwarding firmware-specific
+            # raw MQTT keys, so P1/X1/H2 families share one consumer contract.
+            "ams": _build_ams_relay_status(state),
+            "extruder": _build_extruder_relay_status(state),
             # Bambuddy-side gate, not printer telemetry (#2525). Mirrors what the
             # Web UI already receives via printer_state_to_dict, so an external
             # automation can tell "finished" from "finished and still waiting for

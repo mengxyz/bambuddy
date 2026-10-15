@@ -1,4 +1,6 @@
 export default {
+  externalChamberCooling: { mode: 'Modalità camera', heat: 'Riscalda', cool: 'Raffredda', selectVentilationReady: 'Seleziona entità Ventilazione pronta', selectVentilationFan: 'Seleziona ventola (opzionale)', coolingFanPercentage: 'Ventola di raffreddamento massima (%)', coolingNotConfigured: 'Raffreddamento non configurato' },
+  externalChamber: { title: 'Riscaldatori camera esterni', description: 'Usa un controller climatico Home Assistant come riscaldatore della camera.', add: 'Aggiungi riscaldatore', saved: 'Riscaldatore esterno salvato', selectPrinter: 'Seleziona stampante', selectClimate: 'Seleziona entità clima', selectDuration: 'Seleziona entità durata', selectHeaterReady: 'Seleziona entità Riscaldatore pronto', strict: 'Disponibilità rigorosa', strictDescription: 'Blocca l’avvio della coda se il controller non è pronto.', manualDuration: 'Durata manuale (minuti)', empty: 'Nessun riscaldatore camera esterno configurato.' },
   // Navigation
   nav: {
     printers: 'Stampanti',
@@ -811,6 +813,11 @@ export default {
     door: {
       open: 'Aperta',
       closed: 'Chiusa',
+    },
+    filamentSensor: {
+      detected: 'Filamento rilevato nell’estrusore',
+      empty: 'Nessun filamento rilevato nell’estrusore',
+      notReported: 'Il sensore del filamento dell’estrusore non è segnalato dalla stampante',
     },
     // Fans
     fans: {

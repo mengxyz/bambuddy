@@ -179,6 +179,7 @@ export function PrintModal({
         confirm_outcome: queueItem.confirm_outcome ?? DEFAULT_PRINT_OPTIONS.confirm_outcome,
         preheat_override: queueItem.preheat_override ?? DEFAULT_PRINT_OPTIONS.preheat_override,
         preheat_chamber_target_override: queueItem.preheat_chamber_target_override ?? DEFAULT_PRINT_OPTIONS.preheat_chamber_target_override,
+        preheat_chamber_mode_override: queueItem.preheat_chamber_mode_override ?? DEFAULT_PRINT_OPTIONS.preheat_chamber_mode_override,
       };
     }
     return DEFAULT_PRINT_OPTIONS;
@@ -330,6 +331,7 @@ export function PrintModal({
       confirm_outcome: settings.default_confirm_outcome ?? DEFAULT_PRINT_OPTIONS.confirm_outcome,
       preheat_override: DEFAULT_PRINT_OPTIONS.preheat_override,
       preheat_chamber_target_override: DEFAULT_PRINT_OPTIONS.preheat_chamber_target_override,
+      preheat_chamber_mode_override: DEFAULT_PRINT_OPTIONS.preheat_chamber_mode_override,
     });
   }, [settings, mode]);
 

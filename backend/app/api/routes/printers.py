@@ -496,12 +496,15 @@ async def get_printer_status(
         # persisted, so it still has a truthful value here (#2864); reporting the
         # schema default instead told clients the plate was clean and hid the
         # only control that can release the gate.
-        return PrinterStatus(
+        response = PrinterStatus(
             id=printer_id,
             name=printer.name,
             connected=False,
             awaiting_plate_clear=printer_manager.is_awaiting_plate_clear(printer_id),
         )
+        from backend.app.services.external_chamber import external_chamber_manager
+
+        return PrinterStatus.model_validate(external_chamber_manager.overlay(printer_id, response.model_dump()))
 
     # Determine cover URL if there's an active print (including paused)
     cover_url = None
@@ -747,7 +750,7 @@ async def get_printer_status(
             )
             current_archive_id = archive_row.scalar_one_or_none()
 
-    return PrinterStatus(
+    response = PrinterStatus(
         id=printer_id,
         name=printer.name,
         connected=state.connected,
@@ -839,6 +842,12 @@ async def get_printer_status(
         supports_drying_while_printing=supports_drying_while_printing(printer.model, state.firmware_version),
         drying_screen_only=drying_screen_only(printer.model),
         supports_chamber_heater=supports_chamber_heater(printer.model),
+        extruder_filament_sensor_reported=state.extruder_filament_sensor_reported,
+        # Do not expose a stale physical reading while the printer is offline.
+        # Keep `reported` and the raw value so clients can distinguish a model
+        # that has previously published the switch from one that never has.
+        filament_at_extruder=state.filament_at_extruder if state.connected else None,
+        extruder_filament_sensor_raw=state.extruder_filament_sensor_raw,
         current_archive_id=current_archive_id,
         current_plate_id=current_plate_id,
         fila_switch=(
@@ -859,6 +868,9 @@ async def get_printer_status(
             else None
         ),
     )
+    from backend.app.services.external_chamber import external_chamber_manager
+
+    return PrinterStatus.model_validate(external_chamber_manager.overlay(printer_id, response.model_dump()))
 
 
 @router.get("/{printer_id}/overlay-status")
@@ -910,7 +922,7 @@ async def get_overlay_status(
             "time_format": time_format,
         }
 
-    return {
+    payload = {
         "id": printer_id,
         "name": printer.name,
         "model": printer.model,
@@ -929,6 +941,9 @@ async def get_overlay_status(
         "temperatures": display_temperatures(state.temperatures, printer.model),
         "time_format": time_format,
     }
+    from backend.app.services.external_chamber import external_chamber_manager
+
+    return external_chamber_manager.overlay(printer_id, payload)
 
 
 @router.get("/{printer_id}/current-print-user")
@@ -3783,6 +3798,14 @@ async def set_chamber_temperature(
         le=MAX_CHAMBER_TEMP_C,
         description="Target chamber temperature in Celsius; 0 turns heating off",
     ),
+    duration_minutes: int | None = Query(
+        default=None,
+        ge=15,
+        le=1440,
+        multiple_of=15,
+        description="External-controller program duration; defaults to the binding's manual duration",
+    ),
+    mode: str = Query(default="heat", pattern="^(heat|cool)$", description="External climate mode"),
     _=RequirePermissionIfAuthEnabled(Permission.PRINTERS_CONTROL),
     db: AsyncSession = Depends(get_db),
 ):
@@ -3797,6 +3820,32 @@ async def set_chamber_temperature(
     printer = result.scalar_one_or_none()
     if not printer:
         raise HTTPException(404, "Printer not found")
+
+    from backend.app.models.external_chamber_binding import ExternalChamberBinding
+    from backend.app.services.external_chamber import external_chamber_manager
+
+    external = await db.scalar(
+        select(ExternalChamberBinding).where(
+            ExternalChamberBinding.printer_id == printer_id,
+            ExternalChamberBinding.enabled.is_(True),
+        )
+    )
+    if external:
+        if target == 0:
+            ok = await external_chamber_manager.command_off(db, external, force=True)
+            if not ok:
+                raise HTTPException(502, "Home Assistant rejected the external chamber OFF command")
+            return {"success": True, "message": "External chamber climate turned off"}
+        ok, error = await external_chamber_manager.command_mode(
+            db,
+            external,
+            mode,
+            target,
+            duration_minutes or external.manual_duration_minutes,
+        )
+        if not ok:
+            raise HTTPException(409 if "not ready" in (error or "") else 502, error)
+        return {"success": True, "message": f"External chamber {mode} target set to {target}°C"}
 
     if not supports_chamber_heater(printer.model):
         raise HTTPException(400, f"Model {printer.model or 'unknown'} does not have an active chamber heater")

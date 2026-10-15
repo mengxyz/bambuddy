@@ -130,6 +130,7 @@ class PrintQueueItem(Base):
     # exactly as before the migration.
     preheat_override: Mapped[str] = mapped_column(String(10), default="inherit")
     preheat_chamber_target_override: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    preheat_chamber_mode_override: Mapped[str | None] = mapped_column(String(8), nullable=True)
 
     # Status: pending, printing, completed, failed, skipped, cancelled
     status: Mapped[str] = mapped_column(String(20), default="pending")

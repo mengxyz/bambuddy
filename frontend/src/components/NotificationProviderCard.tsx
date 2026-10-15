@@ -153,6 +153,11 @@ export function NotificationProviderCard({ provider, onEdit }: NotificationProvi
             {provider.on_printer_error && (
               <span className="px-2 py-0.5 bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-400 text-xs rounded">{t('notifications.error')}</span>
             )}
+            {provider.on_external_chamber_fault && (
+              <span className="px-2 py-0.5 bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-400 text-xs rounded">
+                {t('externalChamber.title')} — {t('notifications.error')}
+              </span>
+            )}
             {provider.on_ai_failure_detection && (
               <span className="px-2 py-0.5 bg-fuchsia-100 dark:bg-fuchsia-500/20 text-fuchsia-700 dark:text-fuchsia-300 text-xs rounded">{t('notifications.aiFailureDetection')}</span>
             )}
@@ -432,6 +437,16 @@ export function NotificationProviderCard({ provider, onEdit }: NotificationProvi
                   <Toggle
                     checked={provider.on_printer_error}
                     onChange={(checked) => updateMutation.mutate({ on_printer_error: checked })}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-white">
+                    {t('externalChamber.title')} — {t('notifications.error')}
+                  </p>
+                  <Toggle
+                    checked={provider.on_external_chamber_fault ?? true}
+                    onChange={(checked) => updateMutation.mutate({ on_external_chamber_fault: checked })}
                   />
                 </div>
 

@@ -1,4 +1,6 @@
 export default {
+  externalChamberCooling: { mode: 'Chamber mode', heat: 'Heat', cool: 'Cool', selectVentilationReady: 'Select Ventilation Ready entity', selectVentilationFan: 'Select ventilation fan (optional)', coolingFanPercentage: 'Cooling fan maximum (%)', coolingNotConfigured: 'Cooling not configured' },
+  externalChamber: { title: 'External Chamber Heaters', description: 'Use a Home Assistant climate controller as a printer chamber heater.', add: 'Add heater', saved: 'External chamber heater saved', selectPrinter: 'Select printer', selectClimate: 'Select climate entity', selectDuration: 'Select duration entity', selectHeaterReady: 'Select Heater Ready entity', strict: 'Strict readiness', strictDescription: 'Stop queue dispatch when the controller is not ready.', manualDuration: 'Manual duration (minutes)', empty: 'No external chamber heaters configured.' },
   // Navigation
   nav: {
     printers: 'Printers',
@@ -816,6 +818,11 @@ export default {
     door: {
       open: 'Open',
       closed: 'Closed',
+    },
+    filamentSensor: {
+      detected: 'Filament detected at the extruder',
+      empty: 'No filament detected at the extruder',
+      notReported: 'Extruder filament sensor not reported by the printer',
     },
     // Fans
     fans: {
@@ -2425,8 +2432,8 @@ export default {
     preheatDescription: 'Heat the bed (and chamber, if supported) and hold at temperature before each queued print starts. Helpful for engineering filaments (PA, ABS) on printers without an active chamber heater — the bed warms the chamber by radiation while the soak timer runs. The bed target is read from the print file; chamber behaviour depends on printer model.',
     preheatEnabled: 'Enable preheat & soak',
     preheatEnabledDesc: 'When off, queued prints dispatch immediately. Each queue item can override per print.',
-    preheatFilamentTargetsLabel: 'Per-filament chamber target (°C)',
-    preheatFilamentTargetsHint: 'Bambuddy picks the highest target across the loaded AMS slots. A print whose slots all derive 0 — PLA, PETG, TPU, PVA — skips preheat entirely and starts immediately.',
+    preheatFilamentTargetsLabel: 'Per-filament chamber climate profile',
+    preheatFilamentTargetsHint: 'Choose Off, Heat, or Cool and a target for each material. Mixed Heat/Cool jobs require an explicit queue-item override.',
     preheatFilamentTargetsReset: 'Reset to defaults',
     preheatFilamentTargetsDefaultRow: 'Other / unmapped',
     preheatMaxWait: 'Max wait (seconds)',

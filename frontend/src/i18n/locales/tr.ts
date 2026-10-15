@@ -1,4 +1,6 @@
 export default {
+  externalChamberCooling: { mode: 'Hazne modu', heat: 'Isıt', cool: 'Soğut', selectVentilationReady: 'Havalandırma Hazır varlığını seç', selectVentilationFan: 'Havalandırma fanını seç (isteğe bağlı)', coolingFanPercentage: 'Maksimum soğutma fanı (%)', coolingNotConfigured: 'Soğutma yapılandırılmadı' },
+  externalChamber: { title: 'Harici hazne ısıtıcıları', description: 'Bir Home Assistant iklim denetleyicisini yazıcı hazne ısıtıcısı olarak kullanın.', add: 'Isıtıcı ekle', saved: 'Harici hazne ısıtıcısı kaydedildi', selectPrinter: 'Yazıcı seç', selectClimate: 'İklim varlığı seç', selectDuration: 'Süre varlığı seç', selectHeaterReady: 'Isıtıcı hazır varlığını seç', strict: 'Katı hazır olma', strictDescription: 'Denetleyici hazır değilse kuyruk gönderimini durdurur.', manualDuration: 'Manuel süre (dakika)', empty: 'Yapılandırılmış harici hazne ısıtıcısı yok.' },
   // Navigasyon
   nav: {
     printers: 'Yazıcılar',
@@ -811,6 +813,11 @@ export default {
     door: {
       open: 'Açık',
       closed: 'Kapalı',
+    },
+    filamentSensor: {
+      detected: 'Ekstrüderde filament algılandı',
+      empty: 'Ekstrüderde filament algılanmadı',
+      notReported: 'Ekstrüder filament sensörü yazıcı tarafından bildirilmedi',
     },
     // Fanlar
     fans: {

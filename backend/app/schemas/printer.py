@@ -88,6 +88,7 @@ class PrinterResponse(PrinterBase):
     # Derived from the model, not from nozzle_count — see
     # printer_models.supports_nozzle_flow_type.
     supports_nozzle_flow_type: bool = True
+    supports_chamber_heater: bool = False
     print_hours_offset: float = 0.0
     external_camera_url: str | None = None
     external_camera_type: str | None = None
@@ -121,6 +122,9 @@ class PrinterResponse(PrinterBase):
             "is_active": printer.is_active,
             "nozzle_count": printer.nozzle_count,
             "supports_nozzle_flow_type": supports_nozzle_flow_type(printer.model),
+            "supports_chamber_heater": __import__(
+                "backend.app.services.printer_manager", fromlist=["supports_chamber_heater"]
+            ).supports_chamber_heater(printer.model),
             "print_hours_offset": printer.print_hours_offset,
             "plate_detection_enabled": printer.plate_detection_enabled,
             "created_at": printer.created_at,
@@ -403,6 +407,12 @@ class PrinterStatus(BaseModel):
     extruder_slots: dict[str, ExtruderSlotResponse] = {}
     # Currently loaded tray (global ID): 254 = external spool, 255 = no filament
     tray_now: int = 255
+    # Toolhead filament switch from print.hw_switch_state. `reported=False`
+    # means the printer/firmware has not supplied the capability; it does not
+    # mean the extruder is empty.
+    extruder_filament_sensor_reported: bool = False
+    filament_at_extruder: bool | None = None
+    extruder_filament_sensor_raw: int | None = None
     # Runout / filament-replacement guidance (#2587). Populated only while the
     # print is PAUSED. Both are globalised tray IDs (ams_id*4+slot, or 128-135 for
     # AMS-HT, or 254 for external) so the frontend can highlight them with the same
@@ -458,6 +468,9 @@ class PrinterStatus(BaseModel):
     drying_screen_only: bool = False
     # Active chamber heater (responds to M141). True only for H2C/H2D/H2DPro/H2S/X2D.
     supports_chamber_heater: bool = False
+    # Effective source after an optional HA controller is overlaid.
+    chamber_heater_source: str | None = None
+    external_chamber: dict | None = None
     # Linked archive for the active print (resolved via subtask_id). Frontend uses
     # this to fetch plate metadata and show the plate name when the source 3MF is
     # multi-plate (#881 follow-up).

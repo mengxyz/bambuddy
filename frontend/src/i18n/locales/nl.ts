@@ -1,4 +1,6 @@
 export default {
+  externalChamberCooling: { mode: 'Kamermodus', heat: 'Verwarmen', cool: 'Koelen', selectVentilationReady: 'Ventilatie gereed-entiteit selecteren', selectVentilationFan: 'Ventilatieventilator selecteren (optioneel)', coolingFanPercentage: 'Maximale koelventilator (%)', coolingNotConfigured: 'Koeling niet geconfigureerd' },
+  externalChamber: { title: 'Externe kamerverwarmers', description: 'Gebruik een Home Assistant-klimaatregelaar als kamerverwarmer.', add: 'Verwarmer toevoegen', saved: 'Externe kamerverwarmer opgeslagen', selectPrinter: 'Printer selecteren', selectClimate: 'Klimaatentiteit selecteren', selectDuration: 'Duurentiteit selecteren', selectHeaterReady: 'Entiteit Verwarming gereed selecteren', strict: 'Strikte gereedheid', strictDescription: 'Stopt de wachtrij als de regelaar niet gereed is.', manualDuration: 'Handmatige duur (minuten)', empty: 'Geen externe kamerverwarmers geconfigureerd.' },
   // Navigation
   nav: {
     printers: 'Printers',
@@ -816,6 +818,11 @@ export default {
     door: {
       open: 'Open',
       closed: 'Gesloten',
+    },
+    filamentSensor: {
+      detected: 'Filament gedetecteerd bij de extruder',
+      empty: 'Geen filament gedetecteerd bij de extruder',
+      notReported: 'Extruderfilamentsensor wordt niet door de printer gemeld',
     },
     // Fans
     fans: {

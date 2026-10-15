@@ -1,4 +1,6 @@
 export default {
+  externalChamberCooling: { mode: 'Modo da câmara', heat: 'Aquecer', cool: 'Resfriar', selectVentilationReady: 'Selecionar entidade Ventilação pronta', selectVentilationFan: 'Selecionar ventilador (opcional)', coolingFanPercentage: 'Máximo do ventilador de resfriamento (%)', coolingNotConfigured: 'Resfriamento não configurado' },
+  externalChamber: { title: 'Aquecedores externos da câmara', description: 'Use um controlador climático do Home Assistant como aquecedor da câmara.', add: 'Adicionar aquecedor', saved: 'Aquecedor externo salvo', selectPrinter: 'Selecionar impressora', selectClimate: 'Selecionar entidade climática', selectDuration: 'Selecionar entidade de duração', selectHeaterReady: 'Selecionar entidade Aquecedor pronto', strict: 'Prontidão rigorosa', strictDescription: 'Interrompe o envio da fila quando o controlador não está pronto.', manualDuration: 'Duração manual (minutos)', empty: 'Nenhum aquecedor externo da câmara configurado.' },
   // Navigation
   nav: {
     printers: 'Impressoras',
@@ -811,6 +813,11 @@ export default {
     door: {
       open: 'Aberta',
       closed: 'Fechada',
+    },
+    filamentSensor: {
+      detected: 'Filamento detectado no extrusor',
+      empty: 'Nenhum filamento detectado no extrusor',
+      notReported: 'O sensor de filamento do extrusor não foi informado pela impressora',
     },
     // Fans
     fans: {

@@ -2146,6 +2146,8 @@ function PrinterCard({
   const [showAirductMenu, setShowAirductMenu] = useState<number | null>(null);
   const [showBedJogMenu, setShowBedJogMenu] = useState<number | null>(null);
   const [statusControlMenu, setStatusControlMenu] = useState<string | null>(null);
+  const [externalChamberDuration, setExternalChamberDuration] = useState(240);
+  const [externalChamberMode, setExternalChamberMode] = useState<'heat' | 'cool'>('heat');
   const [bedJogStep, setBedJogStep] = useState<number>(10);
   const [showResumeConfirm, setShowResumeConfirm] = useState(false);
   const [showSkipObjectsModal, setShowSkipObjectsModal] = useState(false);
@@ -2283,6 +2285,18 @@ function PrinterCard({
     queryFn: () => api.getPrinterStatus(printer.id),
     refetchInterval: 30000, // Fallback polling, WebSocket handles real-time
   });
+
+  useEffect(() => {
+    if (status?.external_chamber?.manual_duration_minutes) {
+      setExternalChamberDuration(status.external_chamber.manual_duration_minutes);
+    }
+  }, [status?.external_chamber?.manual_duration_minutes]);
+
+  useEffect(() => {
+    if (status?.external_chamber?.mode === 'heat' || status?.external_chamber?.mode === 'cool') {
+      setExternalChamberMode(status.external_chamber.mode);
+    }
+  }, [status?.external_chamber?.mode]);
 
   // Check for firmware updates (cached for 5 minutes, can be disabled in settings)
   const { data: firmwareInfo } = useQuery({
@@ -2933,7 +2947,12 @@ function PrinterCard({
   });
 
   const chamberTemperatureMutation = useMutation({
-    mutationFn: (target: number) => api.setChamberTemperature(printer.id, target),
+    mutationFn: ({ target, mode = 'heat' }: { target: number; mode?: 'heat' | 'cool' }) => api.setChamberTemperature(
+      printer.id,
+      target,
+      status?.chamber_heater_source === 'home_assistant' ? externalChamberDuration : undefined,
+      mode,
+    ),
     onSuccess: (result) => {
       setStatusControlMenu(null);
       showToast(result.message);
@@ -4507,6 +4526,7 @@ function PrinterCard({
               const nozzleHeating = status.temperatures.nozzle_heating || status.temperatures.nozzle_2_heating || false;
               const bedHeating = status.temperatures.bed_heating || false;
               const chamberHeating = status.temperatures.chamber_heating || false;
+              const chamberCooling = status.temperatures.chamber_cooling || false;
               const isDualNozzle = printer.nozzle_count === 2 || status.temperatures.nozzle_2 !== undefined;
               const availableHeaterKinds: HeaterSensorKind[] = (() => {
                 const kinds: HeaterSensorKind[] = ['nozzle'];
@@ -4517,6 +4537,21 @@ function PrinterCard({
               })();
               // active_extruder: 0=right, 1=left
               const activeNozzle = status.active_extruder === 1 ? 'L' : 'R';
+              const filamentAtSingleExtruder = Boolean(
+                status.extruder_filament_sensor_reported && status.filament_at_extruder
+              );
+              // Dual-nozzle firmware reports a per-extruder filament bit in
+              // device.extruder.info. Fall back to the shared toolhead switch
+              // for the active side on firmware that only publishes
+              // hw_switch_state.
+              const filamentAtLeftExtruder = status.extruder_slots?.['1']?.has_filament
+                ?? (activeNozzle === 'L' && filamentAtSingleExtruder);
+              const filamentAtRightExtruder = status.extruder_slots?.['0']?.has_filament
+                ?? (activeNozzle === 'R' && filamentAtSingleExtruder);
+              const dualFilamentSensorReported = status.extruder_filament_sensor_reported
+                || status.extruder_slots?.['0'] !== undefined
+                || status.extruder_slots?.['1'] !== undefined;
+              const filamentLabelGlow = 'text-status-ok font-semibold drop-shadow-[0_0_3px_currentColor]';
               // Extended nozzle data from nozzle_rack (H2 series: wear, serial, max_temp, etc.)
               // nozzle_rack id 0 = extruder 0 = RIGHT, id 1 = extruder 1 = LEFT
               const leftNozzleSlot = status.nozzle_rack?.find(s => s.id === 1);
@@ -4624,7 +4659,20 @@ function PrinterCard({
                       <HeaterThermometer className="w-[var(--pc-i35,0.875rem)] h-[var(--pc-i35,0.875rem)] mb-0.5" color="text-orange-400" isHeating={nozzleHeating} />
                       {status.temperatures.nozzle_2 !== undefined ? (
                         <>
-                          <p className="text-[length:var(--pc-t9,9px)] text-bambu-gray">L / R</p>
+                          <p
+                            className="text-[length:var(--pc-t9,9px)] text-bambu-gray"
+                            title={
+                              filamentAtLeftExtruder || filamentAtRightExtruder
+                                ? t('printers.filamentSensor.detected')
+                                : dualFilamentSensorReported
+                                  ? t('printers.filamentSensor.empty')
+                                  : t('printers.filamentSensor.notReported')
+                            }
+                          >
+                            <span className={filamentAtLeftExtruder ? filamentLabelGlow : undefined}>L</span>
+                            <span> / </span>
+                            <span className={filamentAtRightExtruder ? filamentLabelGlow : undefined}>R</span>
+                          </p>
                           <p className="text-[length:var(--pc-t11,11px)] text-white">
                             {Math.round(status.temperatures.nozzle || 0)}° / {Math.round(status.temperatures.nozzle_2 || 0)}°
                           </p>
@@ -4632,7 +4680,20 @@ function PrinterCard({
                       ) : singleNozzleSlot ? (
                         <NozzleSlotHoverCard slot={singleNozzleSlot} index={0} activeStatus filamentName={singleNozzleSlot.filament_id ? filamentInfo?.[singleNozzleSlot.filament_id]?.name : undefined}>
                           <div className="cursor-default">
-                            <p className="text-[length:var(--pc-t9,9px)] text-bambu-gray">{t('printers.temperatures.nozzle')}</p>
+                            <p
+                              className={`text-[length:var(--pc-t9,9px)] ${
+                                filamentAtSingleExtruder ? filamentLabelGlow : 'text-bambu-gray'
+                              }`}
+                              title={
+                                filamentAtSingleExtruder
+                                  ? t('printers.filamentSensor.detected')
+                                  : status.extruder_filament_sensor_reported
+                                    ? t('printers.filamentSensor.empty')
+                                    : t('printers.filamentSensor.notReported')
+                              }
+                            >
+                              {t('printers.temperatures.nozzle')}
+                            </p>
                             <p className="text-[length:var(--pc-t11,11px)] text-white">
                               {Math.round(status.temperatures.nozzle || 0)}°C
                             </p>
@@ -4640,7 +4701,20 @@ function PrinterCard({
                         </NozzleSlotHoverCard>
                       ) : (
                         <>
-                          <p className="text-[length:var(--pc-t9,9px)] text-bambu-gray">{t('printers.temperatures.nozzle')}</p>
+                          <p
+                            className={`text-[length:var(--pc-t9,9px)] ${
+                              filamentAtSingleExtruder ? filamentLabelGlow : 'text-bambu-gray'
+                            }`}
+                            title={
+                              filamentAtSingleExtruder
+                                ? t('printers.filamentSensor.detected')
+                                : status.extruder_filament_sensor_reported
+                                  ? t('printers.filamentSensor.empty')
+                                  : t('printers.filamentSensor.notReported')
+                            }
+                          >
+                            {t('printers.temperatures.nozzle')}
+                          </p>
                           <p className="text-[length:var(--pc-t11,11px)] text-white">
                             {Math.round(status.temperatures.nozzle || 0)}°C
                           </p>
@@ -4729,14 +4803,16 @@ function PrinterCard({
                       // Sensor-only models (X1C, X1E, P2S) show the chamber reading
                       // but can't act on M141, so we keep the card read-only there.
                       const hasChamberHeater = status.supports_chamber_heater === true;
+                      const isExternalChamber = status.chamber_heater_source === 'home_assistant';
+                      const canUseChamberControls = hasPermission('printers:control') && (status.connected || isExternalChamber);
                       return (
                         <div
                           className={hasChamberHeater
-                            ? statusControlClass
+                            ? `relative text-center px-2 py-1.5 bg-bambu-dark rounded-lg flex-1 flex flex-col justify-center items-center transition-colors ${canUseChamberControls ? 'cursor-pointer hover:bg-bambu-dark-tertiary' : 'cursor-default opacity-80'}`
                             : 'relative text-center px-2 py-1.5 bg-bambu-dark rounded-lg flex-1 flex flex-col justify-center items-center'}
-                          title={hasChamberHeater ? statusControlTitle : undefined}
+                          title={hasChamberHeater && !canUseChamberControls ? statusControlTitle : undefined}
                           onClick={hasChamberHeater
-                            ? () => canUseStatusControls && setStatusControlMenu(statusControlMenu === 'chamber-temp' ? null : 'chamber-temp')
+                            ? () => canUseChamberControls && setStatusControlMenu(statusControlMenu === 'chamber-temp' ? null : 'chamber-temp')
                             : undefined}
                         >
                           <button
@@ -4750,21 +4826,74 @@ function PrinterCard({
                           >
                             <LineChartIcon className="w-[var(--pc-i25,0.625rem)] h-[var(--pc-i25,0.625rem)]" />
                           </button>
-                          <HeaterThermometer className="w-[var(--pc-i35,0.875rem)] h-[var(--pc-i35,0.875rem)] mb-0.5" color="text-green-400" isHeating={chamberHeating} />
+                          <HeaterThermometer className="w-[var(--pc-i35,0.875rem)] h-[var(--pc-i35,0.875rem)] mb-0.5" color={chamberCooling ? 'text-blue-400' : 'text-green-400'} isHeating={chamberHeating} />
                           <p className="text-[length:var(--pc-t9,9px)] text-bambu-gray">{t('printers.temperatures.chamber')}</p>
+                          {isExternalChamber && (
+                            <p className="text-[length:var(--pc-t9,9px)] text-bambu-green">{t('settings.homeAssistant')}</p>
+                          )}
                           <p className="text-[length:var(--pc-t11,11px)] text-white">
                             {Math.round(status.temperatures.chamber || 0)}°C
                           </p>
+                          {isExternalChamber && (
+                            <div className="mt-1 flex max-w-full gap-1" onClick={(event) => event.stopPropagation()}>
+                              {(['heat', 'cool'] as const).map((mode) => {
+                                const modeReady = mode === 'heat'
+                                  ? status.external_chamber?.heater_ready
+                                  : status.external_chamber?.ventilation_ready;
+                                return (
+                                  <button
+                                    key={mode}
+                                    type="button"
+                                    disabled={!modeReady}
+                                    onClick={() => setExternalChamberMode(mode)}
+                                    className={`rounded px-1.5 py-0.5 text-[9px] transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                                      externalChamberMode === mode
+                                        ? 'bg-bambu-green text-white'
+                                        : 'bg-bambu-dark-tertiary text-bambu-gray hover:text-white'
+                                    }`}
+                                  >
+                                    {mode === 'heat'
+                                      ? t('externalChamberCooling.heat')
+                                      : t('externalChamberCooling.cool')}
+                                  </button>
+                                );
+                              })}
+                              <button
+                                type="button"
+                                disabled={chamberTemperatureMutation.isPending}
+                                onClick={() => chamberTemperatureMutation.mutate({ target: 0, mode: externalChamberMode })}
+                                className="rounded bg-bambu-dark-tertiary px-1.5 py-0.5 text-[9px] text-bambu-gray transition-colors hover:text-white disabled:opacity-40"
+                              >
+                                {t('common.off')}
+                              </button>
+                            </div>
+                          )}
+                          {isExternalChamber && (
+                            <select
+                              aria-label={t('common.minutes')}
+                              value={externalChamberDuration}
+                              onClick={(event) => event.stopPropagation()}
+                              onChange={(event) => setExternalChamberDuration(Number(event.target.value))}
+                              className="mt-1 max-w-full rounded bg-bambu-dark-tertiary px-1 py-0.5 text-[9px] text-white"
+                            >
+                              {[15, 30, 60, 120, 240, 480, 720, 1440].map((minutes) => (
+                                <option key={minutes} value={minutes}>{minutes} {t('common.minutes')}</option>
+                              ))}
+                            </select>
+                          )}
                           {hasChamberHeater && statusControlMenu === 'chamber-temp' && (
                             <IndicatorControlPopover
                               title="Set Chamber Temperature"
                               unit="°C"
-                              customMin={0}
+                              customMin={isExternalChamber ? (externalChamberMode === 'cool' ? 20 : 40) : 0}
                               customMax={MAX_CHAMBER_TEMP_C}
                               isPending={chamberTemperatureMutation.isPending}
                               options={buildPresetOptions(chamberTempPresets, 'C')}
                               onClose={() => setStatusControlMenu(null)}
-                              onSubmit={(target) => chamberTemperatureMutation.mutate(target)}
+                              onSubmit={(target) => chamberTemperatureMutation.mutate({
+                                target,
+                                mode: isExternalChamber ? externalChamberMode : 'heat',
+                              })}
                             />
                           )}
                         </div>

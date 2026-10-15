@@ -110,6 +110,7 @@ class PrintQueueItemCreate(BaseModel):
     # target falls through: this override → max(filament-map[loaded tray]) → 0.
     preheat_override: Literal["inherit", "on", "off"] = "inherit"
     preheat_chamber_target_override: int | None = Field(default=None, ge=0, le=MAX_CHAMBER_TEMP_C)
+    preheat_chamber_mode_override: Literal["heat", "cool", "off"] | None = None
     # Auto-print G-code injection
     gcode_injection: bool = False
     # Batch: create multiple copies (creates a batch if > 1)
@@ -160,6 +161,7 @@ class PrintQueueItemUpdate(BaseModel):
     confirm_outcome: bool | None = None
     preheat_override: Literal["inherit", "on", "off"] | None = None
     preheat_chamber_target_override: int | None = Field(default=None, ge=0, le=MAX_CHAMBER_TEMP_C)
+    preheat_chamber_mode_override: Literal["heat", "cool", "off"] | None = None
     # Auto-print G-code injection
     gcode_injection: bool | None = None
     cost_center_id: int | None = None
@@ -221,6 +223,7 @@ class PrintQueueItemResponse(BaseModel):
     confirm_outcome: bool = False
     preheat_override: Literal["inherit", "on", "off"] = "inherit"
     preheat_chamber_target_override: int | None = None
+    preheat_chamber_mode_override: Literal["heat", "cool", "off"] | None = None
     status: Literal["pending", "printing", "completed", "failed", "skipped", "cancelled"]
     started_at: UTCDatetime
     completed_at: UTCDatetime
@@ -346,6 +349,7 @@ class PrintQueueBulkUpdate(BaseModel):
     confirm_outcome: bool | None = None
     preheat_override: Literal["inherit", "on", "off"] | None = None
     preheat_chamber_target_override: int | None = Field(default=None, ge=0, le=MAX_CHAMBER_TEMP_C)
+    preheat_chamber_mode_override: Literal["heat", "cool", "off"] | None = None
     # Auto-print G-code injection
     gcode_injection: bool | None = None
     cost_center_id: int | None = None

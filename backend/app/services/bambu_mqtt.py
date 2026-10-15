@@ -907,6 +907,12 @@ class PrinterState:
     # simply doesn't publish the field (#2780).
     sdcard_reported: bool = False
     store_to_sdcard: bool = False  # Store sent files on SD card (home_flag bit 11)
+    # Toolhead/extruder filament switch. P1-series firmware reports this as
+    # print.hw_switch_state (1=filament present, 0=empty). Keep a separate
+    # reported flag so silence is never misread as an empty extruder.
+    extruder_filament_sensor_reported: bool = False
+    filament_at_extruder: bool | None = None
+    extruder_filament_sensor_raw: int | None = None
     # Scheme+path of a `project_file` dispatch seen on the request topic, from
     # whoever sent it (the slicer or us). Bambu states where the sliced file
     # went: `ftp://<name>` is external storage, which FTPS serves, while
@@ -4103,6 +4109,23 @@ class BambuMQTTClient:
                 self.on_print_progress(int(self.state.progress))
         if "mc_remaining_time" in data:
             self.state.remaining_time = int(data["mc_remaining_time"])
+        if "hw_switch_state" in data:
+            self.state.extruder_filament_sensor_reported = True
+            raw_switch = data["hw_switch_state"]
+            try:
+                parsed_switch = int(raw_switch)
+            except (TypeError, ValueError):
+                parsed_switch = None
+            self.state.extruder_filament_sensor_raw = parsed_switch
+            self.state.filament_at_extruder = True if parsed_switch == 1 else False if parsed_switch == 0 else None
+            self._debug_on_change(
+                "extruder_filament_sensor",
+                (parsed_switch, self.state.filament_at_extruder),
+                "[%s] Extruder filament sensor: raw=%s filament_present=%s",
+                self.serial_number,
+                parsed_switch,
+                self.state.filament_at_extruder,
+            )
         if "mc_print_sub_stage" in data:
             new_sub_stage = int(data["mc_print_sub_stage"])
             if new_sub_stage != self.state.mc_print_sub_stage:

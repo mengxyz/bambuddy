@@ -429,6 +429,7 @@ export interface Printer {
   // flow type is a real choice. Derived from the model, not the nozzle count —
   // only the A-series has a single variant.
   supports_nozzle_flow_type: boolean;
+  supports_chamber_heater: boolean;
   is_active: boolean;
   auto_archive: boolean;
   external_camera_url: string | null;
@@ -629,6 +630,7 @@ export interface PrinterStatus {
     chamber?: number;
     chamber_target?: number;
     chamber_heating?: boolean;  // Actual heater state from MQTT
+    chamber_cooling?: boolean;
   } | null;
   cover_url: string | null;
   hms_errors: HMSError[];
@@ -680,6 +682,11 @@ export interface PrinterStatus {
   extruder_slots: Record<string, ExtruderSlot>;
   // Currently loaded tray (global tray ID, 255 = no filament loaded, 254 = external spool)
   tray_now: number;
+  // Physical toolhead filament switch (P1S: print.hw_switch_state).
+  // Not-reported is distinct from an empty extruder.
+  extruder_filament_sensor_reported?: boolean;
+  filament_at_extruder?: boolean | null;
+  extruder_filament_sensor_raw?: number | null;
   // Runout / filament-replacement guidance (#2587). Populated only while PAUSED.
   // Global tray IDs (ams_id*4+slot, 128-135 = AMS-HT, 254 = external), matching
   // the same numbering as tray_now so the AMS graphic can highlight them.
@@ -723,6 +730,73 @@ export interface PrinterStatus {
   drying_screen_only?: boolean;
   // Active chamber heater (responds to M141). True only for H2C/H2D/H2DPro/H2S/X2D.
   supports_chamber_heater?: boolean;
+  chamber_heater_source?: 'native' | 'home_assistant' | null;
+  external_chamber?: ExternalChamberStatus | null;
+}
+
+export interface ExternalChamberStatus {
+  binding_id: number;
+  name: string;
+  ready: boolean;
+  heater_ready_state: string;
+  heater_ready: boolean;
+  ventilation_ready: boolean;
+  ventilation_ready_state: string;
+  reachable: boolean;
+  mode: string;
+  action: string | null;
+  current_temperature: number | null;
+  target_temperature: number | null;
+  duration_minutes: number | null;
+  remaining_minutes: number | null;
+  fan_state: string | null;
+  fan_percentage: number | null;
+  fan_mapped: boolean;
+  supports_heat: boolean;
+  supports_cool: boolean;
+  owned: boolean;
+  owner_queue_item_id: number | null;
+  owned_mode: 'heat' | 'cool' | null;
+  owned_fan_percentage: number | null;
+  lifecycle_state: string;
+  fault: boolean;
+  fault_notified: boolean;
+  strict: boolean;
+  manual_duration_minutes: number;
+  cooling_fan_percentage: number;
+}
+
+export interface ExternalChamberBinding {
+  id: number;
+  printer_id: number;
+  name: string;
+  climate_entity_id: string;
+  duration_entity_id: string;
+  heater_ready_entity_id: string;
+  ventilation_ready_entity_id: string | null;
+  ventilation_fan_entity_id: string | null;
+  enabled: boolean;
+  strict: boolean;
+  manual_duration_minutes: number;
+  cooling_fan_percentage: number;
+  owner_queue_item_id: number | null;
+  owned_target: number | null;
+  owned_duration_minutes: number | null;
+  owned_mode: 'heat' | 'cool' | null;
+  owned_fan_percentage: number | null;
+  lifecycle_state: string;
+  lease_renewed_at: string | null;
+  fault_notified: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExternalChamberEntity {
+  entity_id: string;
+  friendly_name: string;
+  domain: 'climate' | 'number' | 'binary_sensor' | 'fan';
+  state: string | null;
+  attributes: Record<string, unknown>;
 }
 
 export interface PrinterCreate {
@@ -2651,6 +2725,7 @@ export interface PrintQueueItem {
   confirm_outcome: boolean;
   preheat_override: 'inherit' | 'on' | 'off';
   preheat_chamber_target_override: number | null;
+  preheat_chamber_mode_override: 'heat' | 'cool' | 'off' | null;
   status: 'pending' | 'printing' | 'completed' | 'failed' | 'skipped' | 'cancelled';
   started_at: string | null;
   completed_at: string | null;
@@ -2783,6 +2858,7 @@ export interface PrintQueueItemCreate {
   confirm_outcome?: boolean;
   preheat_override?: 'inherit' | 'on' | 'off';
   preheat_chamber_target_override?: number | null;
+  preheat_chamber_mode_override?: 'heat' | 'cool' | 'off' | null;
   // Auto-print G-code injection
   gcode_injection?: boolean;
   // Batch: create multiple copies (creates a batch if > 1)
@@ -2873,6 +2949,7 @@ export interface PrintQueueItemUpdate {
   confirm_outcome?: boolean;
   preheat_override?: 'inherit' | 'on' | 'off';
   preheat_chamber_target_override?: number | null;
+  preheat_chamber_mode_override?: 'heat' | 'cool' | 'off' | null;
   // Auto-print G-code injection
   gcode_injection?: boolean;
   cost_center_id?: number | null;
@@ -2902,6 +2979,7 @@ export interface PrintQueueBulkUpdate {
   confirm_outcome?: boolean;
   preheat_override?: 'inherit' | 'on' | 'off';
   preheat_chamber_target_override?: number | null;
+  preheat_chamber_mode_override?: 'heat' | 'cool' | 'off' | null;
   // Auto-print G-code injection
   gcode_injection?: boolean;
   cost_center_id?: number | null;
@@ -3033,6 +3111,7 @@ export interface NotificationProvider {
   // Printer status events
   on_printer_offline: boolean;
   on_printer_error: boolean;
+  on_external_chamber_fault: boolean;
   on_ai_failure_detection: boolean;
   on_filament_low: boolean;
   on_maintenance_due: boolean;
@@ -3102,6 +3181,7 @@ export interface NotificationProviderCreate {
   // Printer status events
   on_printer_offline?: boolean;
   on_printer_error?: boolean;
+  on_external_chamber_fault?: boolean;
   on_ai_failure_detection?: boolean;
   on_filament_low?: boolean;
   on_maintenance_due?: boolean;
@@ -3164,6 +3244,7 @@ export interface NotificationProviderUpdate {
   // Printer status events
   on_printer_offline?: boolean;
   on_printer_error?: boolean;
+  on_external_chamber_fault?: boolean;
   on_ai_failure_detection?: boolean;
   on_filament_low?: boolean;
   on_maintenance_due?: boolean;
@@ -4940,10 +5021,31 @@ export const api = {
       method: 'POST',
     }),
 
-  setChamberTemperature: (printerId: number, target: number) =>
-    request<{ success: boolean; message: string }>(`/printers/${printerId}/temperature/chamber?target=${target}`, {
+  setChamberTemperature: (printerId: number, target: number, durationMinutes?: number, mode: 'heat' | 'cool' = 'heat') =>
+    request<{ success: boolean; message: string }>(`/printers/${printerId}/temperature/chamber?target=${target}&mode=${mode}${durationMinutes ? `&duration_minutes=${durationMinutes}` : ''}`, {
       method: 'POST',
     }),
+
+  getExternalChamberBindings: (printerId?: number) =>
+    request<ExternalChamberBinding[]>(`/ha-chamber-heaters/${printerId ? `?printer_id=${printerId}` : ''}`),
+  getExternalChamberEntities: () => request<ExternalChamberEntity[]>('/ha-chamber-heaters/entities'),
+  testExternalChamber: (climateEntityId: string, durationEntityId: string, heaterReadyEntityId: string, ventilationReadyEntityId: string, ventilationFanEntityId?: string | null) =>
+    request<{ success: boolean; error?: string; status?: ExternalChamberStatus }>('/ha-chamber-heaters/test', {
+      method: 'POST',
+      body: JSON.stringify({
+        climate_entity_id: climateEntityId,
+        duration_entity_id: durationEntityId,
+        heater_ready_entity_id: heaterReadyEntityId,
+        ventilation_ready_entity_id: ventilationReadyEntityId,
+        ventilation_fan_entity_id: ventilationFanEntityId || null,
+      }),
+    }),
+  createExternalChamberBinding: (data: Omit<ExternalChamberBinding, 'id' | 'owner_queue_item_id' | 'owned_target' | 'owned_duration_minutes' | 'owned_mode' | 'owned_fan_percentage' | 'lifecycle_state' | 'lease_renewed_at' | 'fault_notified' | 'created_at' | 'updated_at'> & { ventilation_ready_entity_id: string }) =>
+    request<ExternalChamberBinding>('/ha-chamber-heaters/', { method: 'POST', body: JSON.stringify(data) }),
+  updateExternalChamberBinding: (id: number, data: Partial<Pick<ExternalChamberBinding, 'printer_id' | 'name' | 'climate_entity_id' | 'duration_entity_id' | 'heater_ready_entity_id' | 'ventilation_ready_entity_id' | 'ventilation_fan_entity_id' | 'enabled' | 'strict' | 'manual_duration_minutes' | 'cooling_fan_percentage'>>) =>
+    request<ExternalChamberBinding>(`/ha-chamber-heaters/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteExternalChamberBinding: (id: number) =>
+    request<{ message: string }>(`/ha-chamber-heaters/${id}`, { method: 'DELETE' }),
 
   setFanSpeed: (printerId: number, fan: 'part' | 'aux' | 'aux2' | 'chamber', speed: number) =>
     request<{ success: boolean; message: string }>(`/printers/${printerId}/fan-speed?fan=${fan}&speed=${speed}`, {

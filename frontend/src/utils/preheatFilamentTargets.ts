@@ -20,6 +20,19 @@ export const DEFAULT_PREHEAT_FILAMENT_TARGETS: Record<string, number> = {
   default: 0,
 };
 
+export type ChamberProfileMode = 'off' | 'heat' | 'cool';
+export interface ChamberProfile {
+  mode: ChamberProfileMode;
+  target: number;
+}
+
+export const DEFAULT_PREHEAT_FILAMENT_PROFILES: Record<string, ChamberProfile> = Object.fromEntries(
+  Object.entries(DEFAULT_PREHEAT_FILAMENT_TARGETS).map(([key, target]) => [
+    key,
+    { mode: target > 0 ? 'heat' : 'off', target },
+  ]),
+);
+
 // Stable display order for the editor and any preview UI. Matches the order
 // users will most likely tune (engineering filaments first, then commodity).
 export const PREHEAT_FILAMENT_ORDER: readonly string[] = [
@@ -69,6 +82,47 @@ export function serializePreheatFilamentTargets(map: Record<string, number>): st
   // Preserve any custom keys the user added that aren't in our canonical order.
   for (const [key, value] of Object.entries(map)) {
     if (!(key in out)) out[key] = value;
+  }
+  return JSON.stringify(out);
+}
+
+export function parsePreheatFilamentProfiles(raw: string): Record<string, ChamberProfile> {
+  if (!raw) return structuredClone(DEFAULT_PREHEAT_FILAMENT_PROFILES);
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const out: Record<string, ChamberProfile> = {};
+      for (const [key, value] of Object.entries(parsed)) {
+        if (typeof value === 'number' || typeof value === 'string') {
+          const target = Math.max(0, Math.min(MAX_CHAMBER_TEMP_C, Math.round(Number(value) || 0)));
+          out[key] = { mode: target > 0 ? 'heat' : 'off', target };
+          continue;
+        }
+        if (value && typeof value === 'object') {
+          const candidate = value as { mode?: unknown; target?: unknown };
+          const mode = candidate.mode === 'heat' || candidate.mode === 'cool' ? candidate.mode : 'off';
+          const target = mode === 'off'
+            ? 0
+            : Math.max(0, Math.min(MAX_CHAMBER_TEMP_C, Math.round(Number(candidate.target) || 0)));
+          out[key] = { mode, target };
+        }
+      }
+      if (!out.default) out.default = { ...DEFAULT_PREHEAT_FILAMENT_PROFILES.default };
+      return out;
+    }
+  } catch {
+    // Fall through to bundled defaults.
+  }
+  return structuredClone(DEFAULT_PREHEAT_FILAMENT_PROFILES);
+}
+
+export function serializePreheatFilamentProfiles(map: Record<string, ChamberProfile>): string {
+  const out: Record<string, ChamberProfile> = {};
+  for (const key of PREHEAT_FILAMENT_ORDER) {
+    if (map[key]) out[key] = map[key];
+  }
+  for (const [key, profile] of Object.entries(map)) {
+    if (!(key in out)) out[key] = profile;
   }
   return JSON.stringify(out);
 }

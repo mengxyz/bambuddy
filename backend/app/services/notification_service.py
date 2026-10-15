@@ -2059,6 +2059,30 @@ class NotificationService:
             variables=variables,
         )
 
+    async def on_external_chamber_fault(
+        self,
+        printer_id: int,
+        printer_name: str,
+        controller_name: str,
+        db: AsyncSession,
+    ) -> None:
+        providers = await self._get_providers_for_event(db, "on_external_chamber_fault", printer_id)
+        if not providers:
+            return
+        variables = {"printer": printer_name, "controller": controller_name}
+        title, message = await self._build_message_from_template(db, "external_chamber_fault", variables)
+        await self._send_to_providers(
+            providers,
+            title,
+            message,
+            db,
+            "external_chamber_fault",
+            printer_id,
+            printer_name,
+            force_immediate=True,
+            variables=variables,
+        )
+
     async def on_plate_clear_required(
         self,
         printer_id: int,

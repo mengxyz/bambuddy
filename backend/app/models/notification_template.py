@@ -94,6 +94,12 @@ DEFAULT_TEMPLATES = [
         "body_template": "{printer}\n{error_detail}",
     },
     {
+        "event_type": "external_chamber_fault",
+        "name": "External Chamber Fault",
+        "title_template": "External Chamber Fault",
+        "body_template": "{printer}: {controller} is not ready. The printer was paused for inspection; heating will be restored automatically, but the print must be resumed manually.",
+    },
+    {
         "event_type": "ai_failure_detection",
         "name": "AI Failure Detection",
         "title_template": "Possible Print Failure Detected",

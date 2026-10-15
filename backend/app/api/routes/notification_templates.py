@@ -36,6 +36,7 @@ EVENT_NAMES = {
     "printer_error": "Printer Error",
     "ai_failure_detection": "AI Failure Detection",
     "plate_not_empty": "Plate Not Empty",
+    "external_chamber_fault": "External Chamber Fault",
     "plate_clear_required": "Plate Clear Required",
     "filament_low": "Filament Low",
     "maintenance_due": "Maintenance Due",

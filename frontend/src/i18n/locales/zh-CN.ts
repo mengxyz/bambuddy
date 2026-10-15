@@ -1,4 +1,6 @@
 export default {
+  externalChamberCooling: { mode: '腔体模式', heat: '加热', cool: '冷却', selectVentilationReady: '选择通风就绪实体', selectVentilationFan: '选择通风风扇（可选）', coolingFanPercentage: '冷却风扇最大值（%）', coolingNotConfigured: '未配置冷却' },
+  externalChamber: { title: '外部腔室加热器', description: '将 Home Assistant 温控器用作打印机腔室加热器。', add: '添加加热器', saved: '外部腔室加热器已保存', selectPrinter: '选择打印机', selectClimate: '选择温控实体', selectDuration: '选择时长实体', selectHeaterReady: '选择加热器就绪实体', strict: '严格就绪检查', strictDescription: '控制器未就绪时停止队列任务发送。', manualDuration: '手动时长（分钟）', empty: '尚未配置外部腔室加热器。' },
   // Navigation
   nav: {
     printers: '打印机',
@@ -811,6 +813,11 @@ export default {
     door: {
       open: '开',
       closed: '关',
+    },
+    filamentSensor: {
+      detected: '挤出机已检测到耗材',
+      empty: '挤出机未检测到耗材',
+      notReported: '打印机未报告挤出机耗材传感器',
     },
     // Fans
     fans: {

@@ -305,9 +305,9 @@ async def test_keep_warm_skips_when_chamber_derivation_yields_zero(scheduler):
     item = _make_item(preheat_chamber_target_override=None)
     with (
         patch("backend.app.services.print_scheduler.printer_manager") as pm,
-        patch.object(scheduler, "_get_preheat_filament_targets", AsyncMock(return_value={})),
+        patch.object(scheduler, "_get_preheat_filament_profiles", AsyncMock(return_value={})),
         patch.object(scheduler, "_get_printer", AsyncMock(return_value=SimpleNamespace(id=PRINTER_ID, model="H2D"))),
-        patch.object(scheduler, "_derive_chamber_target", return_value=0),
+        patch.object(scheduler, "_derive_chamber_profile", return_value=("off", 0, False)),
     ):
         pm.get_status.return_value = _make_state()
         pm.get_client.return_value = client
@@ -681,12 +681,12 @@ async def test_keep_warm_fetches_filament_targets_once_per_tick(scheduler):
     ]
     client1 = _make_client()
     client2 = _make_client()
-    fetch_targets = AsyncMock(return_value={"ASA": 60})
+    fetch_targets = AsyncMock(return_value={"ASA": {"mode": "heat", "target": 60}})
     with (
         patch("backend.app.services.print_scheduler.printer_manager") as pm,
-        patch.object(scheduler, "_get_preheat_filament_targets", fetch_targets),
+        patch.object(scheduler, "_get_preheat_filament_profiles", fetch_targets),
         patch.object(scheduler, "_get_printer", AsyncMock(return_value=SimpleNamespace(id=1, model="H2D"))),
-        patch.object(scheduler, "_derive_chamber_target", return_value=60),
+        patch.object(scheduler, "_derive_chamber_profile", return_value=("heat", 60, False)),
     ):
         pm.get_status.return_value = _make_state()
         pm.get_client.side_effect = lambda pid: {1: client1, 2: client2}[pid]
