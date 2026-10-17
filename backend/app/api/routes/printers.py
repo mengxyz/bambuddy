@@ -842,12 +842,12 @@ async def get_printer_status(
         supports_drying_while_printing=supports_drying_while_printing(printer.model, state.firmware_version),
         drying_screen_only=drying_screen_only(printer.model),
         supports_chamber_heater=supports_chamber_heater(printer.model),
-        extruder_filament_sensor_reported=state.extruder_filament_sensor_reported,
+        extruder_filament_sensor_reported=getattr(state, "extruder_filament_sensor_reported", False),
         # Do not expose a stale physical reading while the printer is offline.
         # Keep `reported` and the raw value so clients can distinguish a model
         # that has previously published the switch from one that never has.
-        filament_at_extruder=state.filament_at_extruder if state.connected else None,
-        extruder_filament_sensor_raw=state.extruder_filament_sensor_raw,
+        filament_at_extruder=getattr(state, "filament_at_extruder", None) if state.connected else None,
+        extruder_filament_sensor_raw=getattr(state, "extruder_filament_sensor_raw", None),
         current_archive_id=current_archive_id,
         current_plate_id=current_plate_id,
         fila_switch=(

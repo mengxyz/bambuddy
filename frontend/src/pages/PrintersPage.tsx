@@ -4661,6 +4661,7 @@ function PrinterCard({
                         <>
                           <p
                             className="text-[length:var(--pc-t9,9px)] text-bambu-gray"
+                            aria-label="L / R"
                             title={
                               filamentAtLeftExtruder || filamentAtRightExtruder
                                 ? t('printers.filamentSensor.detected')

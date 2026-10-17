@@ -1562,9 +1562,12 @@ def printer_state_to_dict(
         # Physical toolhead filament switch (not AMS slot presence). The P1S
         # publishes hw_switch_state=0/1. Keep unknown distinct from empty, and
         # suppress the last physical reading while the printer is offline.
-        "extruder_filament_sensor_reported": state.extruder_filament_sensor_reported,
-        "filament_at_extruder": state.filament_at_extruder if state.connected else None,
-        "extruder_filament_sensor_raw": state.extruder_filament_sensor_raw,
+        # Some status producers and tests use a partial/legacy state object.
+        # Treat missing sensor fields as "not reported" instead of dropping the
+        # entire websocket update while those objects transition to PrinterState.
+        "extruder_filament_sensor_reported": getattr(state, "extruder_filament_sensor_reported", False),
+        "filament_at_extruder": getattr(state, "filament_at_extruder", None) if state.connected else None,
+        "extruder_filament_sensor_raw": getattr(state, "extruder_filament_sensor_raw", None),
         # Runout / filament-replacement guidance (#2587). Only meaningful while
         # PAUSED — resolve the firmware's target/previous slot to a global tray ID
         # so the AMS graphic can highlight the slot the print now expects and name
