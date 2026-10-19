@@ -370,6 +370,8 @@ async def apply_spool_to_slot_via_mqtt(
         tray_info_idx=effective_tray_info_idx,
         tray_color=tray_color,
         cali_idx=verify_cali_idx,
+        kprofile_filament_id=cali_filament_id,
+        nozzle_diameter=nozzle_diameter,
     )
 
     # Persist slot preset mapping for UI display (preset_name on hover card).

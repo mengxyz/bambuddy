@@ -3350,6 +3350,8 @@ async def configure_ams_slot(
         tray_info_idx=effective_tray_info_idx,
         tray_color=tray_color,
         cali_idx=cali_idx,
+        kprofile_filament_id=filament_id_for_kprofile,
+        nozzle_diameter=nozzle_diameter,
     )
 
     # Request fresh status push from printer so frontend gets updated data via WebSocket

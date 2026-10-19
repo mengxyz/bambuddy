@@ -6410,6 +6410,78 @@ class TestAmsFilamentSettingExternalSpoolEncoding:
         assert cmd["tray_id"] == 0
         assert cmd["slot_id"] == 0
 
+    def test_external_kprofile_legacy_payload_matches_slot_only_protocol(self, mqtt_client):
+        """A1 compatibility retry uses its virtual AMS id and omits extended fields."""
+        mqtt_client.model = "A1"
+        mqtt_client.state.raw_data = {"vt_tray": [{"id": "254"}]}
+
+        assert mqtt_client.extrusion_cali_sel(
+            ams_id=255,
+            tray_id=0,
+            cali_idx=31,
+            filament_id="GFG00",
+            nozzle_diameter="0.4",
+            legacy_payload=True,
+        )
+
+        cmd = self._published(mqtt_client)
+        assert cmd == {
+            "command": "extrusion_cali_sel",
+            "cali_idx": 31,
+            "ams_id": 255,
+            "tray_id": 254,
+            "slot_id": 0,
+            "sequence_id": "0",
+        }
+
+    @pytest.mark.parametrize("model", ["A1", "A1 Mini", "A1MINI", "N1", "N2S"])
+    def test_a1_family_kprofile_uses_virtual_ams_255(self, mqtt_client, model):
+        mqtt_client.model = model
+        mqtt_client.state.raw_data = {"vt_tray": [{"id": "254"}]}
+
+        assert mqtt_client.extrusion_cali_sel(
+            ams_id=255,
+            tray_id=0,
+            cali_idx=31,
+            filament_id="GFG00",
+        )
+
+        cmd = self._published(mqtt_client)
+        assert cmd["ams_id"] == 255
+        assert cmd["tray_id"] == 254
+
+    @pytest.mark.parametrize("model", ["P1S", "X1C", None])
+    def test_x1_p1_external_kprofile_keeps_ams_254(self, mqtt_client, model):
+        mqtt_client.model = model
+        mqtt_client.state.raw_data = {"vt_tray": [{"id": "254"}]}
+
+        assert mqtt_client.extrusion_cali_sel(
+            ams_id=255,
+            tray_id=0,
+            cali_idx=31,
+            filament_id="GFG00",
+        )
+
+        cmd = self._published(mqtt_client)
+        assert cmd["ams_id"] == 254
+        assert cmd["tray_id"] == 254
+
+    def test_normal_kprofile_payload_keeps_linking_fields(self, mqtt_client):
+        """The compatibility form is only used explicitly; other printers are unchanged."""
+        mqtt_client.state.raw_data = {"vt_tray": [{"id": "254"}]}
+
+        assert mqtt_client.extrusion_cali_sel(
+            ams_id=255,
+            tray_id=0,
+            cali_idx=31,
+            filament_id="GFG00",
+            nozzle_diameter="0.4",
+        )
+
+        cmd = self._published(mqtt_client)
+        assert cmd["filament_id"] == "GFG00"
+        assert cmd["nozzle_diameter"] == "0.4"
+
 
 class TestDryCountdownStall:
     """A ``dry_time`` the firmware set but whose countdown never ticks is a
@@ -8319,12 +8391,22 @@ class TestAmsFilamentSettingRefusalLogging:
 
         assert len(self._refusals(caplog)) == 1
 
-    def test_extrusion_cali_sel_is_untouched(self, mqtt_client, caplog):
-        """The sibling in the same branch keeps its DEBUG-only handling; this
-        change is scoped to the write #2756 is about."""
+    def test_extrusion_cali_sel_refusal_is_logged(self, mqtt_client, caplog):
+        """A refused K-profile selection is as actionable as a refused preset write."""
         caplog.set_level(logging.INFO, logger="backend.app.services.bambu_mqtt")
 
-        mqtt_client._process_message({"print": {"command": "extrusion_cali_sel", "result": "fail", "sequence_id": "0"}})
+        mqtt_client._process_message(
+            {
+                "print": {
+                    "command": "extrusion_cali_sel",
+                    "result": "fail",
+                    "reason": "mqtt message verify failed",
+                    "ams_id": 254,
+                    "tray_id": 254,
+                    "sequence_id": "0",
+                }
+            }
+        )
 
-        assert self._refusals(caplog) == []
-        assert "extrusion_cali_sel" not in caplog.text
+        assert "extrusion_cali_sel refused" in caplog.text
+        assert "mqtt message verify failed" in caplog.text

@@ -2438,15 +2438,11 @@ class BambuMQTTClient:
                         self._dev_mode_probe_seq is not None
                         and print_data.get("sequence_id") == self._dev_mode_probe_seq
                     )
-                    if (
-                        cmd == "ams_filament_setting"
-                        and not is_dev_mode_probe
-                        and isinstance(result, str)
-                        and result.lower() != "success"
-                    ):
+                    if not is_dev_mode_probe and isinstance(result, str) and result.lower() != "success":
                         logger.info(
-                            "[%s] ams_filament_setting refused: result=%s reason=%s ams_id=%s tray_id=%s",
+                            "[%s] %s refused: result=%s reason=%s ams_id=%s tray_id=%s",
                             self.serial_number,
+                            cmd,
                             result,
                             print_data.get("reason", ""),
                             print_data.get("ams_id"),
@@ -3850,6 +3846,8 @@ class BambuMQTTClient:
         tray_info_idx: str,
         tray_color: str,
         cali_idx: int | None,
+        kprofile_filament_id: str | None = None,
+        nozzle_diameter: str = "0.4",
     ) -> None:
         """Record an assignment we just pushed so subsequent AMS telemetry can
         confirm the tray actually accepted it (#2582).
@@ -3871,6 +3869,9 @@ class BambuMQTTClient:
             "tray_info_idx": want_idx,
             "tray_color": (tray_color or "").strip().upper(),
             "cali_idx": cali_idx,
+            "kprofile_filament_id": (kprofile_filament_id or "").strip(),
+            "nozzle_diameter": nozzle_diameter,
+            "kprofile_retry_sent": False,
             "deadline": time.monotonic() + self.ASSIGNMENT_VERIFY_TIMEOUT,
             "last_seen_idx": None,
         }
@@ -3906,10 +3907,13 @@ class BambuMQTTClient:
         """Compare each pending assignment against live tray telemetry and fire
         ``on_assignment_verified`` on a match or once the deadline passes.
 
-        Runs on every AMS push. Non-matching-but-still-within-window entries are
-        left in place for the next push. The timeout branch only fires when a
-        later push arrives after the deadline; if the printer goes silent we
-        simply never confirm, which is preferable to inventing a failure.
+        Runs on every AMS push. Filament configuration and K-profile selection
+        are separate MQTT commands, so the printer can report the new filament
+        before it reports the requested ``cali_idx``. Keep that partially
+        applied assignment pending until the K-profile arrives or the deadline
+        expires. The timeout branch only fires when a later push arrives after
+        the deadline; if the printer goes silent we simply never confirm, which
+        is preferable to inventing a failure.
         """
         now = time.monotonic()
         for key, want in list(self._pending_assignments.items()):
@@ -3919,21 +3923,67 @@ class BambuMQTTClient:
             if tray is not None and actual_idx:
                 want["last_seen_idx"] = actual_idx
             if actual_idx and actual_idx == want["tray_info_idx"]:
-                self._pending_assignments.pop(key, None)
-                kprofile_applied = True
                 want_cali = want.get("cali_idx")
-                if want_cali is not None and want_cali >= 0:
-                    actual_cali = tray.get("cali_idx")
-                    kprofile_applied = actual_cali == want_cali
-                self._fire_assignment_verified(
-                    ams_id,
-                    tray_id,
-                    True,
-                    {
-                        "tray_info_idx": actual_idx,
-                        "kprofile_applied": kprofile_applied,
-                    },
-                )
+                needs_kprofile = want_cali is not None and want_cali >= 0
+                actual_cali_raw = tray.get("cali_idx")
+                try:
+                    actual_cali = int(actual_cali_raw)
+                except (TypeError, ValueError):
+                    actual_cali = None
+
+                if not needs_kprofile or actual_cali == want_cali:
+                    self._pending_assignments.pop(key, None)
+                    self._fire_assignment_verified(
+                        ams_id,
+                        tray_id,
+                        True,
+                        {
+                            "tray_info_idx": actual_idx,
+                            "kprofile_applied": True,
+                        },
+                    )
+                elif not want["kprofile_retry_sent"] and want["kprofile_filament_id"]:
+                    # The firmware processes ams_filament_setting and
+                    # extrusion_cali_sel independently. P1-series printers can
+                    # finish the slower filament-setting command last, which
+                    # resets cali_idx back to Default even though cali_sel was
+                    # published second. Once telemetry proves the filament
+                    # context has settled, select the profile one more time.
+                    want["kprofile_retry_sent"] = True
+                    want["deadline"] = now + self.ASSIGNMENT_VERIFY_TIMEOUT
+                    logger.info(
+                        "[%s] Filament settled for AMS%d-T%d; reapplying K-profile cali_idx=%s",
+                        self.serial_number,
+                        ams_id,
+                        tray_id,
+                        want_cali,
+                    )
+                    vt_tray = self.state.raw_data.get("vt_tray", []) if self.state.raw_data else []
+                    use_legacy_external_payload = ams_id == 255 and len(vt_tray) <= 1
+                    retry_kwargs = {
+                        "ams_id": ams_id,
+                        "tray_id": tray_id,
+                        "cali_idx": want_cali,
+                        "filament_id": want["kprofile_filament_id"],
+                        "nozzle_diameter": want["nozzle_diameter"],
+                    }
+                    if use_legacy_external_payload:
+                        retry_kwargs["legacy_payload"] = True
+                    self.extrusion_cali_sel(**retry_kwargs)
+                    self.request_status_update()
+                elif now >= want["deadline"]:
+                    self._pending_assignments.pop(key, None)
+                    self._fire_assignment_verified(
+                        ams_id,
+                        tray_id,
+                        True,
+                        {
+                            "tray_info_idx": actual_idx,
+                            "kprofile_applied": False,
+                            "expected_cali_idx": want_cali,
+                            "actual_cali_idx": actual_cali_raw,
+                        },
+                    )
             elif now >= want["deadline"]:
                 self._pending_assignments.pop(key, None)
                 self._fire_assignment_verified(
@@ -8044,6 +8094,7 @@ class BambuMQTTClient:
         cali_idx: int,
         filament_id: str,
         nozzle_diameter: str = "0.4",
+        legacy_payload: bool = False,
     ) -> bool:
         """Set calibration profile (K value) for an AMS slot.
 
@@ -8059,6 +8110,9 @@ class BambuMQTTClient:
             cali_idx: Calibration profile index (-1 for default)
             filament_id: Filament preset ID (same as tray_info_idx)
             nozzle_diameter: Nozzle diameter string (e.g., "0.4")
+            legacy_payload: Omit the newer filament/nozzle fields. Some P1/A1
+                firmware accepts the slot-only form for an external spool but
+                silently ignores the extended form.
 
         Returns:
             True if command was sent, False otherwise
@@ -8080,8 +8134,13 @@ class BambuMQTTClient:
                 mqtt_ams_id = 254 + tray_id
                 mqtt_tray_id = 254 + tray_id
             else:
-                # Single external slot (X1C, P1S, A1): global tray_id=254
-                mqtt_ams_id = 254
+                # Single external slot always uses global tray_id=254. X1/P1
+                # accept ams_id=254 here, but A1-family firmware identifies the
+                # same external holder as virtual AMS 255 (matching its accepted
+                # ams_filament_setting request) and rejects ams_id=254.
+                model_key = (self.model or "").upper().replace(" ", "").replace("-", "")
+                a1_family = model_key in {"A1", "A1MINI", "N1", "N2S", "A04", "A12"}
+                mqtt_ams_id = 255 if a1_family else 254
                 mqtt_tray_id = 254
             slot_id = 0
         elif ams_id <= 3:
@@ -8102,22 +8161,30 @@ class BambuMQTTClient:
             mqtt_tray_id = tray_id
             slot_id = 0
 
-        command = {
-            "print": {
-                "command": "extrusion_cali_sel",
-                "cali_idx": cali_idx,
-                "filament_id": filament_id,
-                "nozzle_diameter": nozzle_diameter,
-                "ams_id": mqtt_ams_id,
-                "tray_id": mqtt_tray_id,
-                "slot_id": slot_id,
-                "sequence_id": "0",
-            }
+        print_command = {
+            "command": "extrusion_cali_sel",
+            "cali_idx": cali_idx,
+            "ams_id": mqtt_ams_id,
+            "tray_id": mqtt_tray_id,
+            "slot_id": slot_id,
+            "sequence_id": "0",
         }
+        if not legacy_payload:
+            print_command["filament_id"] = filament_id
+            print_command["nozzle_diameter"] = nozzle_diameter
+        command = {"print": print_command}
 
         command_json = json.dumps(command)
         logger.info(
-            f"[{self.serial_number}] Publishing extrusion_cali_sel: AMS {ams_id}, tray {tray_id}, cali_idx={cali_idx}"
+            "[%s] Publishing extrusion_cali_sel: AMS %s, tray %s, wire_ams=%s, wire_tray=%s, "
+            "cali_idx=%s, legacy_payload=%s",
+            self.serial_number,
+            ams_id,
+            tray_id,
+            mqtt_ams_id,
+            mqtt_tray_id,
+            cali_idx,
+            legacy_payload,
         )
         logger.debug("[%s] extrusion_cali_sel command: %s", self.serial_number, command_json)
         self._client.publish(self.topic_publish, command_json, qos=1)

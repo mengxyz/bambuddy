@@ -59,22 +59,64 @@ class TestAssignmentMatch:
         client._handle_ams_data(_ams_frame(tray_info_idx="GFL05"))
         assert cb.call_args.args[2] is True
 
-    def test_kprofile_mismatch_flags_not_applied(self):
+    def test_kprofile_mismatch_waits_until_deadline_before_warning(self):
         cb = MagicMock()
         client = _client(cb)
         client.register_assignment_verification(ams_id=0, tray_id=0, tray_info_idx="GFL05", tray_color="", cali_idx=3)
-        # Filament id landed but the printer kept a different cali_idx.
+        # The filament-setting command can land before extrusion_cali_sel. Do
+        # not warn from that intermediate frame.
+        client._handle_ams_data(_ams_frame(tray_info_idx="GFL05", cali_idx=1))
+        cb.assert_not_called()
+        assert (0, 0) in client._pending_assignments
+
+        # Once the verification window expires, the same mismatch is real.
+        client._pending_assignments[(0, 0)]["deadline"] = time.monotonic() - 1
         client._handle_ams_data(_ams_frame(tray_info_idx="GFL05", cali_idx=1))
 
         verified, detail = cb.call_args.args[2], cb.call_args.args[3]
         assert verified is True
         assert detail["kprofile_applied"] is False
+        assert detail["expected_cali_idx"] == 3
+        assert detail["actual_cali_idx"] == 1
 
-    def test_kprofile_match_flags_applied(self):
+    def test_kprofile_match_accepts_string_cali_idx(self):
         cb = MagicMock()
         client = _client(cb)
         client.register_assignment_verification(ams_id=0, tray_id=0, tray_info_idx="GFL05", tray_color="", cali_idx=3)
-        client._handle_ams_data(_ams_frame(tray_info_idx="GFL05", cali_idx=3))
+        # MQTT firmwares are inconsistent about numeric fields being JSON
+        # numbers or strings; both represent the same calibration index.
+        client._handle_ams_data(_ams_frame(tray_info_idx="GFL05", cali_idx="3"))
+        assert cb.call_args.args[3]["kprofile_applied"] is True
+
+    def test_kprofile_can_land_on_second_telemetry_frame(self):
+        cb = MagicMock()
+        client = _client(cb)
+        client.extrusion_cali_sel = MagicMock(return_value=True)
+        client.request_status_update = MagicMock(return_value=True)
+        client.register_assignment_verification(
+            ams_id=0,
+            tray_id=0,
+            tray_info_idx="GFL05",
+            tray_color="",
+            cali_idx=331,
+            kprofile_filament_id="GFL05",
+            nozzle_diameter="0.4",
+        )
+
+        client._handle_ams_data(_ams_frame(tray_info_idx="GFL05", cali_idx=-1))
+        cb.assert_not_called()
+        client.extrusion_cali_sel.assert_called_once_with(
+            ams_id=0,
+            tray_id=0,
+            cali_idx=331,
+            filament_id="GFL05",
+            nozzle_diameter="0.4",
+        )
+        client.request_status_update.assert_called_once()
+
+        client._handle_ams_data(_ams_frame(tray_info_idx="GFL05", cali_idx=331))
+        cb.assert_called_once()
+        assert cb.call_args.args[2] is True
         assert cb.call_args.args[3]["kprofile_applied"] is True
 
 
@@ -149,3 +191,31 @@ class TestExternalSpool:
 
         cb.assert_called_once()
         assert cb.call_args.args[2] is True
+
+    def test_external_kprofile_retry_uses_legacy_wire_payload(self):
+        client = _client()
+        client._client = MagicMock()
+        client.state.connected = True
+        client.state.raw_data["vt_tray"] = [{"id": 254, "tray_info_idx": "GFG00", "cali_idx": -1}]
+        client.extrusion_cali_sel = MagicMock(return_value=True)
+        client.request_status_update = MagicMock(return_value=True)
+        client.register_assignment_verification(
+            ams_id=255,
+            tray_id=0,
+            tray_info_idx="GFG00",
+            tray_color="",
+            cali_idx=31,
+            kprofile_filament_id="GFG00",
+            nozzle_diameter="0.4",
+        )
+
+        client._handle_ams_data(_ams_frame(tray_info_idx="unrelated"))
+
+        client.extrusion_cali_sel.assert_called_once_with(
+            ams_id=255,
+            tray_id=0,
+            cali_idx=31,
+            filament_id="GFG00",
+            nozzle_diameter="0.4",
+            legacy_payload=True,
+        )
