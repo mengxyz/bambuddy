@@ -192,7 +192,7 @@ class TestExternalSpool:
         cb.assert_called_once()
         assert cb.call_args.args[2] is True
 
-    def test_external_kprofile_retry_uses_legacy_wire_payload(self):
+    def test_external_kprofile_retry_resends_full_selection(self):
         client = _client()
         client._client = MagicMock()
         client.state.connected = True
@@ -217,5 +217,4 @@ class TestExternalSpool:
             cali_idx=31,
             filament_id="GFG00",
             nozzle_diameter="0.4",
-            legacy_payload=True,
         )

@@ -3958,18 +3958,13 @@ class BambuMQTTClient:
                         tray_id,
                         want_cali,
                     )
-                    vt_tray = self.state.raw_data.get("vt_tray", []) if self.state.raw_data else []
-                    use_legacy_external_payload = ams_id == 255 and len(vt_tray) <= 1
-                    retry_kwargs = {
-                        "ams_id": ams_id,
-                        "tray_id": tray_id,
-                        "cali_idx": want_cali,
-                        "filament_id": want["kprofile_filament_id"],
-                        "nozzle_diameter": want["nozzle_diameter"],
-                    }
-                    if use_legacy_external_payload:
-                        retry_kwargs["legacy_payload"] = True
-                    self.extrusion_cali_sel(**retry_kwargs)
+                    self.extrusion_cali_sel(
+                        ams_id=ams_id,
+                        tray_id=tray_id,
+                        cali_idx=want_cali,
+                        filament_id=want["kprofile_filament_id"],
+                        nozzle_diameter=want["nozzle_diameter"],
+                    )
                     self.request_status_update()
                 elif now >= want["deadline"]:
                     self._pending_assignments.pop(key, None)
@@ -8094,7 +8089,6 @@ class BambuMQTTClient:
         cali_idx: int,
         filament_id: str,
         nozzle_diameter: str = "0.4",
-        legacy_payload: bool = False,
     ) -> bool:
         """Set calibration profile (K value) for an AMS slot.
 
@@ -8110,9 +8104,6 @@ class BambuMQTTClient:
             cali_idx: Calibration profile index (-1 for default)
             filament_id: Filament preset ID (same as tray_info_idx)
             nozzle_diameter: Nozzle diameter string (e.g., "0.4")
-            legacy_payload: Omit the newer filament/nozzle fields. Some P1/A1
-                firmware accepts the slot-only form for an external spool but
-                silently ignores the extended form.
 
         Returns:
             True if command was sent, False otherwise
@@ -8134,13 +8125,12 @@ class BambuMQTTClient:
                 mqtt_ams_id = 254 + tray_id
                 mqtt_tray_id = 254 + tray_id
             else:
-                # Single external slot always uses global tray_id=254. X1/P1
-                # accept ams_id=254 here, but A1-family firmware identifies the
-                # same external holder as virtual AMS 255 (matching its accepted
-                # ams_filament_setting request) and rejects ams_id=254.
-                model_key = (self.model or "").upper().replace(" ", "").replace("-", "")
-                a1_family = model_key in {"A1", "A1MINI", "N1", "N2S", "A04", "A12"}
-                mqtt_ams_id = 255 if a1_family else 254
+                # A single external holder is virtual AMS 255 with global tray
+                # 254. A1 01.07.02.00 and P1S production captures both reject
+                # ams_id=254 with `result=fail`, while ams_id=255 persists the
+                # selected profile. This matches ams_filament_setting's
+                # independently captured single-external addressing.
+                mqtt_ams_id = 255
                 mqtt_tray_id = 254
             slot_id = 0
         elif ams_id <= 3:
@@ -8164,27 +8154,24 @@ class BambuMQTTClient:
         print_command = {
             "command": "extrusion_cali_sel",
             "cali_idx": cali_idx,
+            "filament_id": filament_id,
+            "nozzle_diameter": nozzle_diameter,
             "ams_id": mqtt_ams_id,
             "tray_id": mqtt_tray_id,
             "slot_id": slot_id,
             "sequence_id": "0",
         }
-        if not legacy_payload:
-            print_command["filament_id"] = filament_id
-            print_command["nozzle_diameter"] = nozzle_diameter
         command = {"print": print_command}
 
         command_json = json.dumps(command)
         logger.info(
-            "[%s] Publishing extrusion_cali_sel: AMS %s, tray %s, wire_ams=%s, wire_tray=%s, "
-            "cali_idx=%s, legacy_payload=%s",
+            "[%s] Publishing extrusion_cali_sel: AMS %s, tray %s, wire_ams=%s, wire_tray=%s, cali_idx=%s",
             self.serial_number,
             ams_id,
             tray_id,
             mqtt_ams_id,
             mqtt_tray_id,
             cali_idx,
-            legacy_payload,
         )
         logger.debug("[%s] extrusion_cali_sel command: %s", self.serial_number, command_json)
         self._client.publish(self.topic_publish, command_json, qos=1)
