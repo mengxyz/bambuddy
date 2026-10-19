@@ -416,6 +416,44 @@ describe('FilamentHoverCard', () => {
       await waitFor(() => expect(screen.queryByText('PLA Basic')).not.toBeInTheDocument());
     });
 
+    it('reopens on a second touch after Assign Spool dismissed it', async () => {
+      const onAssignSpool = vi.fn();
+      const result = render(
+        <FilamentHoverCard
+          data={baseFilamentData}
+          inventory={{ assignedSpool: null, onAssignSpool }}
+        >
+          <div>trigger</div>
+        </FilamentHoverCard>
+      );
+      const trigger = result.container.firstElementChild as HTMLElement;
+
+      fireEvent.pointerDown(trigger, { pointerType: 'touch' });
+      await waitFor(() => expect(screen.getByText(/assign spool/i)).toBeInTheDocument());
+      fireEvent.click(screen.getByText(/assign spool/i));
+      await waitFor(() => expect(screen.queryByText('PLA Basic')).not.toBeInTheDocument());
+
+      // A phone can leave the trigger in its emulated :hover state, so there
+      // is deliberately no mouseleave/mouseenter between these two taps.
+      fireEvent.pointerDown(trigger, { pointerType: 'touch' });
+      await waitFor(() => expect(screen.getByText('PLA Basic')).toBeInTheDocument());
+    });
+
+    it('dismisses a touch-opened card when tapping outside', async () => {
+      const result = render(
+        <FilamentHoverCard data={baseFilamentData}>
+          <div>trigger</div>
+        </FilamentHoverCard>
+      );
+      const trigger = result.container.firstElementChild as HTMLElement;
+
+      fireEvent.pointerDown(trigger, { pointerType: 'touch' });
+      await waitFor(() => expect(screen.getByText('PLA Basic')).toBeInTheDocument());
+      fireEvent.pointerDown(document.body, { pointerType: 'touch' });
+
+      await waitFor(() => expect(screen.queryByText('PLA Basic')).not.toBeInTheDocument());
+    });
+
     it('closes the card when Unassign Spool is pressed', async () => {
       const onUnassignSpool = vi.fn();
       renderWithHover(
@@ -508,6 +546,18 @@ describe('EmptySlotHoverCard (#1133)', () => {
     await waitFor(() => expect(screen.getByText(/assign spool/i)).toBeInTheDocument());
     fireEvent.click(screen.getByText(/assign spool/i));
     expect(onAssign).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens on touch without relying on emulated mouse hover', async () => {
+    const result = render(
+      <EmptySlotHoverCard configureSlot={{ enabled: true, onConfigure: vi.fn() }}>
+        <div>trigger</div>
+      </EmptySlotHoverCard>
+    );
+
+    fireEvent.pointerDown(result.container.firstElementChild as HTMLElement, { pointerType: 'touch' });
+
+    await waitFor(() => expect(screen.getByText(/empty/i)).toBeInTheDocument());
   });
 
   // #2791: the empty-slot and filled-slot cards are separate render paths

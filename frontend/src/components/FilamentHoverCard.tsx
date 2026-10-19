@@ -1,4 +1,11 @@
-import { useState, useRef, useEffect, useLayoutEffect, type ReactNode } from 'react';
+import {
+  useState,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -93,6 +100,12 @@ export function FilamentHoverCard({ data, children, disabled, className = '', sp
   const triggerRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Mobile browsers synthesize mouse events for a tap and can keep the tapped
+  // element in their emulated hover state. Once an action dismisses this card,
+  // that means another mouseenter may never arrive. Remember a real touch/pen
+  // interaction briefly so its compatibility mouseleave cannot undo the
+  // explicit opening below.
+  const ignoreMouseUntilRef = useRef(0);
 
   const handleCopyUuid = () => {
     const uuid = data.trayUuid;
@@ -170,14 +183,27 @@ export function FilamentHoverCard({ data, children, disabled, className = '', sp
 
   const handleMouseEnter = () => {
     if (disabled) return;
+    if (Date.now() < ignoreMouseUntilRef.current) return;
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     // Small delay to prevent flicker on quick mouse movements
     timeoutRef.current = setTimeout(() => setIsVisible(true), 80);
   };
 
   const handleMouseLeave = () => {
+    if (Date.now() < ignoreMouseUntilRef.current) return;
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = setTimeout(() => setIsVisible(false), 100);
+  };
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (disabled || event.pointerType === 'mouse') return;
+    // Portaled card events bubble through the React tree even though the card
+    // is not a DOM child of the trigger. Only a tap on the slot itself opens it;
+    // taps on popup actions must remain free to dismiss it.
+    if (!(event.target instanceof Node) || !triggerRef.current?.contains(event.target)) return;
+    ignoreMouseUntilRef.current = Date.now() + 1000;
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    setIsVisible(true);
   };
 
   // Dismiss the card immediately, for actions that open a dialog or navigate away.
@@ -199,6 +225,20 @@ export function FilamentHoverCard({ data, children, disabled, className = '', sp
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
   }, []);
+
+  // Touch has no natural mouseleave. Let a tap anywhere outside the slot or
+  // its portaled card close it, while a later tap on the slot always reopens it.
+  useEffect(() => {
+    if (!isVisible) return;
+    const handleOutsidePointerDown = (event: PointerEvent) => {
+      if (!(event.target instanceof Node)) return;
+      if (triggerRef.current?.contains(event.target) || cardRef.current?.contains(event.target)) return;
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      setIsVisible(false);
+    };
+    document.addEventListener('pointerdown', handleOutsidePointerDown, true);
+    return () => document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
+  }, [isVisible]);
 
   // Get fill bar color based on percentage
   const getFillColor = (fill: number): string => {
@@ -288,6 +328,7 @@ export function FilamentHoverCard({ data, children, disabled, className = '', sp
       ref={triggerRef}
       data-testid="filament-slot"
       className={`relative ${className}`}
+      onPointerDown={handlePointerDown}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
@@ -646,15 +687,26 @@ export function EmptySlotHoverCard({ children, className = '', configureSlot, on
   const triggerRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ignoreMouseUntilRef = useRef(0);
 
   const handleMouseEnter = () => {
+    if (Date.now() < ignoreMouseUntilRef.current) return;
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = setTimeout(() => setIsVisible(true), 80);
   };
 
   const handleMouseLeave = () => {
+    if (Date.now() < ignoreMouseUntilRef.current) return;
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = setTimeout(() => setIsVisible(false), 100);
+  };
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'mouse') return;
+    if (!(event.target instanceof Node) || !triggerRef.current?.contains(event.target)) return;
+    ignoreMouseUntilRef.current = Date.now() + 1000;
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    setIsVisible(true);
   };
 
   // See FilamentHoverCard.dismiss — same z-[60]-over-a-z-50-dialog problem, and the
@@ -669,6 +721,18 @@ export function EmptySlotHoverCard({ children, className = '', configureSlot, on
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isVisible) return;
+    const handleOutsidePointerDown = (event: PointerEvent) => {
+      if (!(event.target instanceof Node)) return;
+      if (triggerRef.current?.contains(event.target) || cardRef.current?.contains(event.target)) return;
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      setIsVisible(false);
+    };
+    document.addEventListener('pointerdown', handleOutsidePointerDown, true);
+    return () => document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
+  }, [isVisible]);
 
   useLayoutEffect(() => {
     if (!isVisible) {
@@ -700,6 +764,7 @@ export function EmptySlotHoverCard({ children, className = '', configureSlot, on
     <div
       ref={triggerRef}
       className={`relative ${className}`}
+      onPointerDown={handlePointerDown}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
