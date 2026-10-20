@@ -35,10 +35,12 @@ class _FakeSession:
 @pytest.fixture(autouse=True)
 def _clear_cover_state():
     printers_mod._cover_cache.clear()
+    printers_mod._cover_transform_cache.clear()
     printers_mod._cover_404_cache.clear()
     printers_mod._cover_inflight.clear()
     yield
     printers_mod._cover_cache.clear()
+    printers_mod._cover_transform_cache.clear()
     printers_mod._cover_404_cache.clear()
     printers_mod._cover_inflight.clear()
 

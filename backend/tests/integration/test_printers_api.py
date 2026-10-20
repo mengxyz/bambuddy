@@ -800,6 +800,57 @@ class TestPrintersAPI:
 
     @pytest.mark.asyncio
     @pytest.mark.integration
+    async def test_cover_resizes_and_converts_for_small_displays(self, async_client: AsyncClient, printer_factory):
+        """MCU clients can request an exact-size JPEG without rendering 3D locally."""
+        import io
+        from unittest.mock import MagicMock, patch
+
+        from PIL import Image
+
+        from backend.app.api.routes.printers import _cover_cache, clear_cover_cache
+        from backend.app.services.bambu_mqtt import PrinterState
+
+        printer = await printer_factory()
+        source = Image.new("RGB", (400, 200), (220, 30, 30))
+        source_bytes = io.BytesIO()
+        source.save(source_bytes, "PNG")
+
+        state = PrinterState()
+        state.connected = True
+        state.state = "RUNNING"
+        state.subtask_name = "DisplayResize"
+        state.gcode_file = "DisplayResize.3mf"
+        cache_key = (state.subtask_name, "default")
+        _cover_cache.setdefault(printer.id, {})[cache_key] = source_bytes.getvalue()
+
+        try:
+            with patch("backend.app.api.routes.printers.printer_manager") as mock_pm:
+                mock_pm.get_status = MagicMock(return_value=state)
+                response = await async_client.get(
+                    f"/api/v1/printers/{printer.id}/cover?width=240&height=240&format=jpeg&quality=75"
+                )
+        finally:
+            clear_cover_cache(printer.id)
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/jpeg"
+        with Image.open(io.BytesIO(response.content)) as rendered:
+            assert rendered.size == (240, 240)
+            assert rendered.format == "JPEG"
+            # The 2:1 source is contained in a square, leaving dark bars above
+            # and below rather than stretching the model.
+            assert max(rendered.getpixel((120, 10))) < 40
+            assert rendered.getpixel((120, 120))[0] > 180
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_cover_resize_parameters_are_bounded(self, async_client: AsyncClient):
+        response = await async_client.get("/api/v1/printers/1/cover?width=8&format=bmp&quality=100")
+
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
     async def test_cover_pick_view_serves_active_plate_object_mask(
         self, async_client: AsyncClient, printer_factory, db_session, tmp_path
     ):

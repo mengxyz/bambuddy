@@ -1217,6 +1217,33 @@ endsolid cube"""
 
     @pytest.mark.asyncio
     @pytest.mark.integration
+    async def test_file_browser_thumbnail_can_be_resized_for_small_displays(
+        self, async_client: AsyncClient, db_session
+    ):
+        from PIL import Image
+
+        buffer = io.BytesIO()
+        Image.new("RGB", (640, 320), (0, 174, 66)).save(buffer, format="PNG")
+        upload = await async_client.post(
+            "/api/v1/library/files",
+            files={"file": ("display-source.png", buffer.getvalue(), "image/png")},
+        )
+        assert upload.status_code == 200
+
+        file_id = upload.json()["id"]
+        response = await async_client.get(
+            f"/api/v1/library/files/{file_id}/thumbnail?width=160&height=160&format=jpeg&quality=70"
+        )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/jpeg"
+        with Image.open(io.BytesIO(response.content)) as thumbnail:
+            assert thumbnail.format == "JPEG"
+            assert thumbnail.size == (160, 160)
+            assert max(thumbnail.getpixel((80, 10))) < 40
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
     async def test_extract_zip_with_stl_thumbnail_param(self, async_client: AsyncClient, db_session):
         """Verify ZIP extraction accepts generate_stl_thumbnails parameter."""
         # Create a ZIP file containing an STL

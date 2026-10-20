@@ -4,6 +4,7 @@ import re
 import secrets
 import zipfile
 from pathlib import Path
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response
@@ -90,6 +91,7 @@ from backend.app.services.printer_media import (
 )
 from backend.app.services.slicer_filament_resolver import _ORCA_PROFILE_ID, lookup_orca_filament_id
 from backend.app.services.slot_nozzle import resolve_slot_nozzle
+from backend.app.services.thumbnail_transform import ThumbnailTransformError, transform_thumbnail
 from backend.app.utils.ams_humidity import ams_humidity_percent
 from backend.app.utils.filament_ids import filament_id_to_setting_id
 from backend.app.utils.filament_types import is_material_name, printer_filament_type
@@ -1083,6 +1085,15 @@ async def diagnose_printer(
 # different plates always fetch a fresh thumbnail without needing plate in the key.
 _cover_cache: dict[int, dict[tuple[str, str], bytes]] = {}
 
+# Display-sized variants derived from the original PNG cover. Kept separate
+# from ``_cover_cache`` so the existing browser request always receives the
+# slicer's original bytes, while small clients (for example an ESP32 display)
+# avoid paying for the same Pillow resize on every status refresh.
+_cover_transform_cache: dict[
+    int,
+    dict[tuple[str, str, int | None, int | None, str, int], bytes],
+] = {}
+
 # Negative cache (#1420): when a cover lookup exhausts every FTP path with 550
 # (file sliced on SD card, not on printer storage), remember the failure so the
 # next request short-circuits to 404 instead of re-hammering FTP 8 paths deep.
@@ -1102,7 +1113,53 @@ _cover_inflight: dict[tuple[int, str, str], asyncio.Future] = {}
 def clear_cover_cache(printer_id: int) -> None:
     """Clear cached cover images for a printer. Call on print start to avoid stale thumbnails."""
     _cover_cache.pop(printer_id, None)
+    _cover_transform_cache.pop(printer_id, None)
     _cover_404_cache.pop(printer_id, None)
+
+
+def _transform_cover_image(
+    image_data: bytes,
+    width: int | None,
+    height: int | None,
+    image_format: Literal["png", "jpeg"],
+    quality: int,
+) -> bytes:
+    """Translate the shared transform service's decode error into an API error."""
+    try:
+        return transform_thumbnail(image_data, width, height, image_format, quality)
+    except ThumbnailTransformError as exc:
+        raise HTTPException(422, "Cover image could not be decoded for resizing") from exc
+
+
+async def _cover_response(
+    image_data: bytes,
+    *,
+    printer_id: int,
+    cache_key: tuple[str, str],
+    width: int | None,
+    height: int | None,
+    image_format: Literal["png", "jpeg"],
+    quality: int,
+) -> Response:
+    """Return the original cover or a cached display-sized derivative."""
+    if width is None and height is None and image_format == "png":
+        return Response(content=image_data, media_type="image/png")
+
+    transform_key = (*cache_key, width, height, image_format, quality)
+    transformed = _cover_transform_cache.get(printer_id, {}).get(transform_key)
+    if transformed is None:
+        transformed = await asyncio.to_thread(
+            _transform_cover_image,
+            image_data,
+            width,
+            height,
+            image_format,
+            quality,
+        )
+        _cover_transform_cache.setdefault(printer_id, {})[transform_key] = transformed
+
+    media_type = "image/jpeg" if image_format == "jpeg" else "image/png"
+    return Response(content=transformed, media_type=media_type)
 
 
 async def _running_print_archive_file(printer_id: int, state) -> Path | None:
@@ -1145,6 +1202,10 @@ async def get_printer_cover(
     printer_id: int,
     view: str | None = None,
     _: User | None = Depends(require_media_token_permission(Permission.PRINTERS_READ)),
+    width: Annotated[int | None, Query(ge=16, le=1024)] = None,
+    height: Annotated[int | None, Query(ge=16, le=1024)] = None,
+    image_format: Annotated[Literal["png", "jpeg"], Query(alias="format")] = "png",
+    quality: Annotated[int, Query(ge=1, le=95)] = 80,
 ):
     """Get the cover image for the current print job.
 
@@ -1158,6 +1219,11 @@ async def get_printer_cover(
         view: Optional view type. Use "top" for the top-down build plate view or
               "pick" for the slicer's object-ID mask used by skip objects.
               Default returns angled 3D perspective view.
+        width: Optional output width (16-1024 pixels).
+        height: Optional output height (16-1024 pixels).
+        image_format: Output format (``png`` or ``jpeg``). Defaults to the
+                      original PNG behavior.
+        quality: JPEG quality (1-95, default 80). Ignored for PNG.
     """
     # Fetch the printer in a short-lived session and release the pooled DB
     # connection BEFORE the FTP download below. Previously this route took its
@@ -1208,7 +1274,15 @@ async def get_printer_cover(
     # late plate resolution the cache check would always miss.
     cache_key = (subtask_name, view_key)
     if printer_id in _cover_cache and cache_key in _cover_cache[printer_id]:
-        return Response(content=_cover_cache[printer_id][cache_key], media_type="image/png")
+        return await _cover_response(
+            _cover_cache[printer_id][cache_key],
+            printer_id=printer_id,
+            cache_key=cache_key,
+            width=width,
+            height=height,
+            image_format=image_format,
+            quality=quality,
+        )
 
     # Negative-cache short-circuit (#1420): if a prior lookup for this same
     # subtask + view already failed, don't replay 8 FTP retries on every page
@@ -1229,7 +1303,15 @@ async def get_printer_cover(
         except Exception:
             pass
         if printer_id in _cover_cache and cache_key in _cover_cache[printer_id]:
-            return Response(content=_cover_cache[printer_id][cache_key], media_type="image/png")
+            return await _cover_response(
+                _cover_cache[printer_id][cache_key],
+                printer_id=printer_id,
+                cache_key=cache_key,
+                width=width,
+                height=height,
+                image_format=image_format,
+                quality=quality,
+            )
         if printer_id in _cover_404_cache and cache_key in _cover_404_cache[printer_id]:
             raise HTTPException(404, f"No cover available for '{subtask_name}' (cached)")
         # Leader finished without filling either cache (a transient 503) — fall
@@ -1248,7 +1330,15 @@ async def get_printer_cover(
             cache_key,
             archive_path=await _running_print_archive_file(printer_id, state),
         )
-        return Response(content=image_data, media_type="image/png")
+        return await _cover_response(
+            image_data,
+            printer_id=printer_id,
+            cache_key=cache_key,
+            width=width,
+            height=height,
+            image_format=image_format,
+            quality=quality,
+        )
     finally:
         if not fut.done():
             fut.set_result(None)

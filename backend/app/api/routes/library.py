@@ -14,6 +14,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import FileResponse as FastAPIFileResponse
@@ -88,6 +89,7 @@ from backend.app.services.slice_output_check import (
     unresolved_filament_slots,
 )
 from backend.app.services.stl_thumbnail import MIN_USABLE_STL_BYTES, generate_stl_thumbnail
+from backend.app.services.thumbnail_transform import ThumbnailTransformError, transform_thumbnail_file
 from backend.app.utils.filename import (
     MAX_FILENAME_BYTES,
     InvalidFilenameError,
@@ -5486,6 +5488,10 @@ async def get_thumbnail(
             Permission.LIBRARY_READ_OWN,
         )
     ),
+    width: Annotated[int | None, Query(ge=16, le=1024)] = None,
+    height: Annotated[int | None, Query(ge=16, le=1024)] = None,
+    image_format: Annotated[Literal["png", "jpeg"], Query(alias="format")] = "png",
+    quality: Annotated[int, Query(ge=1, le=95)] = 80,
 ):
     """Get a file's thumbnail.
 
@@ -5501,6 +5507,28 @@ async def get_thumbnail(
     abs_thumb_path = to_absolute_path(file.thumbnail_path)
     if not abs_thumb_path or not abs_thumb_path.exists():
         raise HTTPException(status_code=404, detail="Thumbnail not found")
+
+    if width is not None or height is not None or image_format != "png":
+        stat = abs_thumb_path.stat()
+        try:
+            transformed = await asyncio.to_thread(
+                transform_thumbnail_file,
+                str(abs_thumb_path),
+                stat.st_mtime_ns,
+                stat.st_size,
+                width,
+                height,
+                image_format,
+                quality,
+            )
+        except ThumbnailTransformError as exc:
+            raise HTTPException(status_code=422, detail="Thumbnail could not be resized") from exc
+        media_type = "image/jpeg" if image_format == "jpeg" else "image/png"
+        return Response(
+            content=transformed,
+            media_type=media_type,
+            headers={"Cache-Control": "private, no-cache, must-revalidate"},
+        )
 
     # Detect media type from extension
     thumb_ext = abs_thumb_path.suffix.lower()

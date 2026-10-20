@@ -9,6 +9,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from html import escape as html_escape
 from pathlib import Path
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, Response
@@ -54,6 +55,7 @@ from backend.app.services.print_storage import (
     REASON_NO_EXTERNAL_STORAGE,
 )
 from backend.app.services.printer_media import VIDEO_SUFFIXES, match_ipcam_chunks
+from backend.app.services.thumbnail_transform import ThumbnailTransformError, transform_thumbnail_file
 from backend.app.utils.archive_paths import archive_photos_dir, find_archive_photo
 from backend.app.utils.http import build_content_disposition, download_error_response, safe_download_filename
 from backend.app.utils.threemf_tools import (
@@ -2388,6 +2390,10 @@ async def get_thumbnail(
             Permission.ARCHIVES_READ_OWN,
         )
     ),
+    width: Annotated[int | None, Query(ge=16, le=1024)] = None,
+    height: Annotated[int | None, Query(ge=16, le=1024)] = None,
+    image_format: Annotated[Literal["png", "jpeg"], Query(alias="format")] = "png",
+    quality: Annotated[int, Query(ge=1, le=95)] = 80,
 ):
     """Get the thumbnail image.
 
@@ -2405,7 +2411,33 @@ async def get_thumbnail(
         raise HTTPException(404, "Thumbnail file not found")
 
     # Use file modification time as ETag to bust cache
-    mtime = int(thumb_path.stat().st_mtime)
+    stat = thumb_path.stat()
+    mtime = int(stat.st_mtime)
+
+    if width is not None or height is not None or image_format != "png":
+        try:
+            transformed = await asyncio.to_thread(
+                transform_thumbnail_file,
+                str(thumb_path),
+                stat.st_mtime_ns,
+                stat.st_size,
+                width,
+                height,
+                image_format,
+                quality,
+            )
+        except ThumbnailTransformError as exc:
+            raise HTTPException(status_code=422, detail="Thumbnail could not be resized") from exc
+        media_type = "image/jpeg" if image_format == "jpeg" else "image/png"
+        variant = f"{width or 0}x{height or 0}-{image_format}-{quality}"
+        return Response(
+            content=transformed,
+            media_type=media_type,
+            headers={
+                "Cache-Control": "no-cache, must-revalidate",
+                "ETag": f'"{mtime}-{variant}"',
+            },
+        )
 
     return FileResponse(
         path=thumb_path,
