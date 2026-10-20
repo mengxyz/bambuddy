@@ -152,6 +152,28 @@ class TestLibraryFoldersAPI:
 
     @pytest.mark.asyncio
     @pytest.mark.integration
+    async def test_archive_folder_links_are_batched(self, async_client: AsyncClient, folder_factory, archive_factory):
+        """Archive cards get all badge links in one small response."""
+        first_archive = await archive_factory(None, print_name="First", with_run=False)
+        second_archive = await archive_factory(None, print_name="Second", with_run=False)
+        await folder_factory(name="Zulu", archive_id=first_archive.id)
+        first_folder = await folder_factory(name="Alpha", archive_id=first_archive.id)
+        second_folder = await folder_factory(name="Second files", archive_id=second_archive.id)
+        await folder_factory(name="Unlinked")
+
+        response = await async_client.post(
+            "/api/v1/library/folders/archive-links",
+            json={"archive_ids": [first_archive.id, second_archive.id]},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            str(first_archive.id): {"id": first_folder.id, "name": "Alpha"},
+            str(second_archive.id): {"id": second_folder.id, "name": "Second files"},
+        }
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
     async def test_update_folder(self, async_client: AsyncClient, folder_factory, db_session):
         """Verify folder can be updated."""
         folder = await folder_factory(name="Old Name")

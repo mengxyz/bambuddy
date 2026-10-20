@@ -5568,7 +5568,18 @@ export const api = {
     request<{ updated: number; errors: Array<{ id: number; error: string }> }>('/archives/backfill-hashes', {
       method: 'POST',
     }),
-  getArchiveThumbnail: (id: number) => withMediaToken(`${API_BASE}/archives/${id}/thumbnail?v=${Date.now()}`),
+  getArchiveThumbnail: (
+    id: number,
+    options?: { width?: number; height?: number; format?: 'png' | 'jpeg'; quality?: number },
+  ) => {
+    const params = new URLSearchParams();
+    if (options?.width !== undefined) params.set('width', String(options.width));
+    if (options?.height !== undefined) params.set('height', String(options.height));
+    if (options?.format !== undefined) params.set('format', options.format);
+    if (options?.quality !== undefined) params.set('quality', String(options.quality));
+    const query = params.toString();
+    return withMediaToken(`${API_BASE}/archives/${id}/thumbnail${query ? `?${query}` : ''}`);
+  },
   getArchivePlateThumbnail: (id: number, plateIndex: number) =>
     withMediaToken(`${API_BASE}/archives/${id}/plate-thumbnail/${plateIndex}`),
   getArchiveDownload: (id: number) => `${API_BASE}/archives/${id}/download`,
@@ -7648,6 +7659,19 @@ export const api = {
     request<LibraryFolder[]>(`/library/folders/by-project/${projectId}`),
   getLibraryFoldersByArchive: (archiveId: number) =>
     request<LibraryFolder[]>(`/library/folders/by-archive/${archiveId}`),
+  getLibraryArchiveFolderLinks: async (archiveIds: number[]) => {
+    const chunks: number[][] = [];
+    for (let index = 0; index < archiveIds.length; index += 200) {
+      chunks.push(archiveIds.slice(index, index + 200));
+    }
+    const responses = await Promise.all(chunks.map((archive_ids) =>
+      request<Record<string, { id: number; name: string }>>('/library/folders/archive-links', {
+        method: 'POST',
+        body: JSON.stringify({ archive_ids }),
+      })
+    ));
+    return Object.assign({}, ...responses) as Record<string, { id: number; name: string }>;
+  },
 
   getLibraryFiles: (
     folderId?: number | null,

@@ -243,9 +243,16 @@ export function CalendarView({ archives, onArchiveClick, highlightedArchiveId }:
                   >
                     {archive.thumbnail_path ? (
                       <img
-                        src={api.getArchiveThumbnail(archive.id)}
+                        src={api.getArchiveThumbnail(archive.id, {
+                          width: 96,
+                          height: 96,
+                          format: 'jpeg',
+                          quality: 40,
+                        })}
                         alt=""
                         className="w-12 h-12 rounded object-cover"
+                        loading="lazy"
+                        decoding="async"
                       />
                     ) : (
                       <div className="w-12 h-12 rounded bg-bambu-dark-tertiary flex items-center justify-center">

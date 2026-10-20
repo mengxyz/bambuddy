@@ -2383,6 +2383,7 @@ async def download_archive_for_slicer(
 @router.get("/{archive_id}/thumbnail")
 async def get_thumbnail(
     archive_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     auth_result: tuple[User | None, bool] = Depends(
         require_media_token_ownership(
@@ -2410,9 +2411,16 @@ async def get_thumbnail(
     if not thumb_path.exists():
         raise HTTPException(404, "Thumbnail file not found")
 
-    # Use file modification time as ETag to bust cache
+    # A stable URL lets the browser reuse a decoded image across React renders.
+    # Revalidate against the file identity after an hour so a rescan that
+    # replaces the thumbnail at the same path still becomes visible.
     stat = thumb_path.stat()
-    mtime = int(stat.st_mtime)
+    cache_control = "private, max-age=3600, must-revalidate"
+    variant = f"{width or 0}x{height or 0}-{image_format}-{quality}"
+    etag = f'"{stat.st_mtime_ns}-{stat.st_size}-{variant}"'
+    response_headers = {"Cache-Control": cache_control, "ETag": etag}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=response_headers)
 
     if width is not None or height is not None or image_format != "png":
         try:
@@ -2429,23 +2437,16 @@ async def get_thumbnail(
         except ThumbnailTransformError as exc:
             raise HTTPException(status_code=422, detail="Thumbnail could not be resized") from exc
         media_type = "image/jpeg" if image_format == "jpeg" else "image/png"
-        variant = f"{width or 0}x{height or 0}-{image_format}-{quality}"
         return Response(
             content=transformed,
             media_type=media_type,
-            headers={
-                "Cache-Control": "no-cache, must-revalidate",
-                "ETag": f'"{mtime}-{variant}"',
-            },
+            headers=response_headers,
         )
 
     return FileResponse(
         path=thumb_path,
         media_type="image/png",
-        headers={
-            "Cache-Control": "no-cache, must-revalidate",
-            "ETag": f'"{mtime}"',
-        },
+        headers=response_headers,
     )
 
 

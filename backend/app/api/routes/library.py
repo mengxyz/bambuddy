@@ -45,6 +45,7 @@ from backend.app.schemas.library import (
     AddToQueueRequest,
     AddToQueueResponse,
     AddToQueueResult,
+    ArchiveFolderLinksRequest,
     BatchThumbnailRequest,
     BatchThumbnailResponse,
     BatchThumbnailResult,
@@ -1091,6 +1092,39 @@ async def get_folders_by_project(
         )
 
     return folders
+
+
+@router.post("/folders/archive-links")
+async def get_folder_links_by_archives(
+    data: ArchiveFolderLinksRequest,
+    db: AsyncSession = Depends(get_db),
+    auth_result: tuple[User | None, bool] = Depends(
+        require_ownership_permission(
+            Permission.LIBRARY_READ_ALL,
+            Permission.LIBRARY_READ_OWN,
+        )
+    ),
+):
+    """Return the first linked folder for each requested visible archive.
+
+    Archive cards only need an id and name for their folder badge.  Serving
+    those links in one query avoids one full folder-detail request per card.
+    """
+    user, can_read_all = auth_result
+    conditions = [LibraryFolder.archive_id.in_(set(data.archive_ids))]
+    if user is not None and not can_read_all:
+        conditions.append(PrintArchive.created_by_id == user.id)
+    rows = await db.execute(
+        select(LibraryFolder.archive_id, LibraryFolder.id, LibraryFolder.name)
+        .join(PrintArchive, LibraryFolder.archive_id == PrintArchive.id)
+        .where(*conditions)
+        .order_by(LibraryFolder.archive_id, LibraryFolder.name, LibraryFolder.id)
+    )
+    links: dict[str, dict[str, int | str]] = {}
+    for linked_archive_id, folder_id, folder_name in rows.all():
+        if linked_archive_id is not None:
+            links.setdefault(str(linked_archive_id), {"id": folder_id, "name": folder_name})
+    return links
 
 
 @router.get("/folders/by-archive/{archive_id}", response_model=list[FolderResponse])

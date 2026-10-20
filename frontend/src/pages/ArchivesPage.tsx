@@ -277,6 +277,7 @@ async function openInSlicerWithToken(
 
 function ArchiveCard({
   archive,
+  linkedFolder,
   printerName,
   printerMap,
   isSelected,
@@ -292,6 +293,7 @@ function ArchiveCard({
   onNavigateToArchive,
 }: {
   archive: Archive;
+  linkedFolder?: { id: number; name: string };
   printerName: string;
   isSelected: boolean;
   onSelect: (id: number) => void;
@@ -528,12 +530,6 @@ function ArchiveCard({
       queryClient.invalidateQueries({ queryKey: ['archives'] });
       showToast(data.is_favorite ? t('archives.toast.addedToFavorites') : t('archives.toast.removedFromFavorites'));
     },
-  });
-
-  // Query for linked folders
-  const { data: linkedFolders } = useQuery({
-    queryKey: ['archive-folders', archive.id],
-    queryFn: () => api.getLibraryFoldersByArchive(archive.id),
   });
 
   const assignProjectMutation = useMutation({
@@ -909,10 +905,17 @@ function ArchiveCard({
             src={
               currentPlateIndex !== null && plates.length > 0
                 ? api.getArchivePlateThumbnail(archive.id, plates[displayPlateIndex]?.index ?? 0)
-                : api.getArchiveThumbnail(archive.id)
+                : api.getArchiveThumbnail(archive.id, {
+                    width: 320,
+                    height: 180,
+                    format: 'jpeg',
+                    quality: 40,
+                  })
             }
             alt={archive.print_name || archive.filename}
             className="w-full h-full object-cover"
+            loading="lazy"
+            decoding="async"
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
@@ -1140,12 +1143,12 @@ function ArchiveCard({
           </button>
         )}
         {/* Linked folder badge */}
-        {linkedFolders && linkedFolders.length > 0 && (
+        {linkedFolder && (
           <Link
-            to={`/files?folder=${linkedFolders[0].id}`}
+            to={`/files?folder=${linkedFolder.id}`}
             className="absolute bottom-2 p-1.5 rounded bg-black/60 hover:bg-black/80 transition-colors"
             onClick={(e) => e.stopPropagation()}
-            title={t('archives.card.openFolder', { name: linkedFolders[0].name })}
+            title={t('archives.card.openFolder', { name: linkedFolder.name })}
             style={{ left: archive.source_3mf_path ? (archive.f3d_path ? '5.5rem' : '3rem') : (archive.f3d_path ? '3rem' : '0.5rem') }}
           >
             <FolderOpen className="w-4 h-4 text-yellow-400" />
@@ -1817,6 +1820,7 @@ function ArchiveCard({
 
 function ArchiveListRow({
   archive,
+  linkedFolder,
   printerName,
   isSelected,
   onSelect,
@@ -1829,6 +1833,7 @@ function ArchiveListRow({
   onNavigateToArchive,
 }: {
   archive: Archive;
+  linkedFolder?: { id: number; name: string };
   printerName: string;
   isSelected: boolean;
   onSelect: (id: number) => void;
@@ -2019,12 +2024,6 @@ function ArchiveListRow({
       queryClient.invalidateQueries({ queryKey: ['archives'] });
       showToast(data.is_favorite ? t('archives.toast.addedToFavorites') : t('archives.toast.removedFromFavorites'));
     },
-  });
-
-  // Query for linked folders
-  const { data: linkedFolders } = useQuery({
-    queryKey: ['archive-folders', archive.id],
-    queryFn: () => api.getLibraryFoldersByArchive(archive.id),
   });
 
   const assignProjectMutation = useMutation({
@@ -2368,9 +2367,16 @@ function ArchiveListRow({
           )}
           {archive.thumbnail_path ? (
             <img
-              src={api.getArchiveThumbnail(archive.id)}
+              src={api.getArchiveThumbnail(archive.id, {
+                width: 80,
+                height: 80,
+                format: 'jpeg',
+                quality: 40,
+              })}
               alt=""
               className="w-10 h-10 object-cover rounded"
+              loading="lazy"
+              decoding="async"
             />
           ) : (
             <div className="w-10 h-10 bg-bambu-dark rounded flex items-center justify-center">
@@ -2443,11 +2449,11 @@ function ArchiveListRow({
                 <Film className="w-3.5 h-3.5 text-bambu-green flex-shrink-0" />
               </span>
             )}
-            {linkedFolders && linkedFolders.length > 0 && (
+            {linkedFolder && (
               <Link
-                to={`/files?folder=${linkedFolders[0].id}`}
+                to={`/files?folder=${linkedFolder.id}`}
                 className="flex-shrink-0"
-                title={t('archives.card.openFolder', { name: linkedFolders[0].name })}
+                title={t('archives.card.openFolder', { name: linkedFolder.name })}
                 onClick={(e) => e.stopPropagation()}
               >
                 <FolderOpen className="w-3.5 h-3.5 text-yellow-600 dark:text-yellow-400" />
@@ -3651,6 +3657,15 @@ export function ArchivesPage() {
   const paginatedArchives = showAll
     ? filteredArchives
     : filteredArchives?.slice(pageIndex * effectivePageSize, (pageIndex + 1) * effectivePageSize);
+  const visibleArchiveIds = paginatedArchives?.map((archive) => archive.id) ?? [];
+  const { data: archiveFolderLinks } = useQuery({
+    queryKey: ['archive-folder-links', visibleArchiveIds],
+    queryFn: () => api.getLibraryArchiveFolderLinks(visibleArchiveIds),
+    enabled:
+      (viewMode === 'grid' || viewMode === 'list')
+      && Boolean(paginatedArchives?.length),
+    staleTime: 0,
+  });
 
   // Jump to the page containing the highlighted archive
   useEffect(() => {
@@ -4322,6 +4337,7 @@ export function ArchivesPage() {
               <ArchiveCard
                 key={archive.id}
                 archive={archive}
+                linkedFolder={archiveFolderLinks?.[String(archive.id)]}
                 printerName={archive.printer_id ? printerMap.get(archive.printer_id) || 'Unknown' : (archive.sliced_for_model || 'No Printer')}
                 printerMap={printerMap}
                 isSelected={selectedIds.has(archive.id)}
@@ -4366,6 +4382,7 @@ export function ArchivesPage() {
                 <ArchiveListRow
                   key={archive.id}
                   archive={archive}
+                  linkedFolder={archiveFolderLinks?.[String(archive.id)]}
                   printerName={archive.printer_id ? printerMap.get(archive.printer_id) || 'Unknown' : (archive.sliced_for_model || 'No Printer')}
                   isSelected={selectedIds.has(archive.id)}
                   onSelect={toggleSelect}

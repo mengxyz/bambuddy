@@ -35,6 +35,12 @@ class FolderUpdate(BaseModel):
     archive_id: int | None = None  # 0 to unlink
 
 
+class ArchiveFolderLinksRequest(BaseModel):
+    """Archives whose lightweight linked-folder badges are needed."""
+
+    archive_ids: list[int] = Field(..., min_length=1, max_length=200)
+
+
 class FolderResponse(BaseModel):
     """Schema for folder response."""
 

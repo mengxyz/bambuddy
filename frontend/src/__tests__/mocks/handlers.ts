@@ -476,6 +476,7 @@ export const handlers = [
   http.get('/api/v1/inventory/locations', () => HttpResponse.json([])),
   http.get('/api/v1/inventory/spools', () => HttpResponse.json([])),
   http.get('/api/v1/library/folders', () => HttpResponse.json([])),
+  http.post('/api/v1/library/folders/archive-links', () => HttpResponse.json({})),
   http.get('/api/v1/library/folders/by-archive/:id', () => HttpResponse.json([])),
   http.get('/api/v1/maintenance/overview', () => HttpResponse.json([])),
   http.get('/api/v1/makerworld/recent-imports', () => HttpResponse.json([])),

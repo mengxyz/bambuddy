@@ -23,6 +23,36 @@ class TestArchivesAPI:
 
     @pytest.mark.asyncio
     @pytest.mark.integration
+    async def test_resized_thumbnail_is_browser_cacheable(
+        self, async_client: AsyncClient, archive_factory, monkeypatch, tmp_path
+    ):
+        """Stable archive thumbnail URLs revalidate cheaply after their max age."""
+        from PIL import Image
+
+        monkeypatch.setattr(settings, "base_dir", tmp_path)
+        thumbnail = tmp_path / "archives" / "cache" / "thumbnail.png"
+        thumbnail.parent.mkdir(parents=True)
+        Image.new("RGB", (640, 320), (0, 174, 66)).save(thumbnail, format="PNG")
+        archive = await archive_factory(
+            None,
+            thumbnail_path="archives/cache/thumbnail.png",
+            with_run=False,
+        )
+        url = f"/api/v1/archives/{archive.id}/thumbnail?width=320&height=180&format=jpeg&quality=40"
+
+        first = await async_client.get(url)
+        assert first.status_code == 200
+        assert first.headers["content-type"] == "image/jpeg"
+        assert first.headers["cache-control"] == "private, max-age=3600, must-revalidate"
+        etag = first.headers["etag"]
+
+        cached = await async_client.get(url, headers={"If-None-Match": etag})
+        assert cached.status_code == 304
+        assert cached.content == b""
+        assert cached.headers["etag"] == etag
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
     @pytest.mark.parametrize("prefer_filename_for_name", [True, False])
     async def test_upload_archive_forwards_prefer_filename_for_name(
         self, async_client: AsyncClient, archive_factory, printer_factory, prefer_filename_for_name

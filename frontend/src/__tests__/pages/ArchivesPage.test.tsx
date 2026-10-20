@@ -281,10 +281,41 @@ describe('ArchivesPage', () => {
       await waitFor(() => {
         // Archive cards should render with their thumbnails
         expect(screen.getByText('Benchy')).toBeInTheDocument();
-        // Thumbnail images should be present (archive cards have img elements)
-        const images = document.querySelectorAll('img[alt="Benchy"]');
-        expect(images.length).toBeGreaterThanOrEqual(0);
+        const image = document.querySelector('img[alt="Benchy"]');
+        expect(image).not.toBeNull();
+        expect(image?.getAttribute('src')).toContain('width=320');
+        expect(image?.getAttribute('src')).toContain('height=180');
+        expect(image?.getAttribute('src')).toContain('format=jpeg');
+        expect(image?.getAttribute('src')).toContain('quality=40');
+        expect(image?.getAttribute('src')).not.toContain('v=');
+        expect(image).toHaveAttribute('loading', 'lazy');
+        expect(image).toHaveAttribute('decoding', 'async');
       });
+    });
+
+    it('loads archive folder badges with one batch request', async () => {
+      let batchRequests = 0;
+      let legacyRequests = 0;
+      server.use(
+        http.post('/api/v1/library/folders/archive-links', () => {
+          batchRequests += 1;
+          return HttpResponse.json({ '1': { id: 77, name: 'Benchy files' } });
+        }),
+        http.get('/api/v1/library/folders/by-archive/:id', () => {
+          legacyRequests += 1;
+          return HttpResponse.json([]);
+        }),
+      );
+
+      render(<ArchivesPage />);
+
+      await waitFor(() => {
+        expect(batchRequests).toBe(1);
+      });
+      await waitFor(() => {
+        expect(document.querySelector('a[href="/files?folder=77"]')).not.toBeNull();
+      });
+      expect(legacyRequests).toBe(0);
     });
 
     it('fetches plate data for multi-plate archives on hover', async () => {
