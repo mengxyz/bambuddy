@@ -7,6 +7,7 @@ Handles authentication and profile management with Bambu Cloud.
 import asyncio
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -838,6 +839,32 @@ _BUILTIN_FILAMENT_NAMES: dict[str, str] = {
     "GFU99": "Generic TPU",
 }
 
+_BUILTIN_TEMP_MATERIALS = ("PLA", "PETG", "PCTG", "ABS", "ASA", "TPU", "PC", "PA", "NYLON")
+_BUILTIN_TEMP_RANGES: dict[str, tuple[int, int]] = {
+    "PLA": (190, 230),
+    "PETG": (220, 260),
+    "PCTG": (220, 260),
+    "ABS": (240, 280),
+    "ASA": (240, 280),
+    "TPU": (200, 240),
+    "PC": (260, 300),
+    "PA": (250, 290),
+    "NYLON": (250, 290),
+}
+
+
+def _builtin_filament_temp_range(name: str) -> tuple[int, int]:
+    """Mirror the material defaults used by ConfigureAmsSlotModal."""
+    candidate = name.upper()
+    support_match = re.search(r"\bSUPPORT\s+FOR\s+", candidate)
+    if support_match:
+        candidate = candidate[support_match.end() :]
+
+    for material in _BUILTIN_TEMP_MATERIALS:
+        if re.search(rf"\b{re.escape(material)}\b", candidate):
+            return _BUILTIN_TEMP_RANGES[material]
+    return (190, 230)
+
 
 async def _enrich_from_local_presets(
     unresolved_ids: list[str],
@@ -1239,13 +1266,25 @@ async def get_builtin_filaments(
     _: User | None = RequirePermissionIfAuthEnabled(Permission.FILAMENTS_READ),
 ):
     """
-    Get built-in filament names as a fallback source.
+    Get built-in filament names and slot-configure temperature ranges.
 
     Returns the static _BUILTIN_FILAMENT_NAMES table as a list of
-    {filament_id, name} objects.  Used by the frontend when cloud
-    and local profiles are unavailable.
+    {filament_id, name, nozzle_temp_min, nozzle_temp_max} objects. Used by
+    clients to select a built-in filament and configure an AMS slot without
+    carrying a second material-temperature table.
     """
-    return [{"filament_id": fid, "name": name} for fid, name in _BUILTIN_FILAMENT_NAMES.items()]
+    result = []
+    for filament_id, name in _BUILTIN_FILAMENT_NAMES.items():
+        temp_min, temp_max = _builtin_filament_temp_range(name)
+        result.append(
+            {
+                "filament_id": filament_id,
+                "name": name,
+                "nozzle_temp_min": temp_min,
+                "nozzle_temp_max": temp_max,
+            }
+        )
+    return result
 
 
 # Cache for filament_id → name mapping (resolved from cloud preset details)

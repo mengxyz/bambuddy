@@ -22,6 +22,7 @@ from backend.app.schemas.kprofile import (
     KProfilesResponse,
 )
 from backend.app.services.printer_manager import printer_manager
+from backend.app.services.slot_nozzle import nozzle_diameter_for_extruder
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,9 @@ router = APIRouter(prefix="/printers/{printer_id}/kprofiles", tags=["kprofiles"]
 @router.get("/", response_model=KProfilesResponse)
 async def get_kprofiles(
     printer_id: int,
-    nozzle_diameter: str = "0.4",
+    nozzle_diameter: str | None = None,
+    filament_id: str | None = None,
+    extruder_id: int | None = None,
     db: AsyncSession = Depends(get_db),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.KPROFILES_READ),
 ):
@@ -39,7 +42,10 @@ async def get_kprofiles(
 
     Args:
         printer_id: ID of the printer
-        nozzle_diameter: Filter by nozzle diameter (default: "0.4")
+        nozzle_diameter: Optional nozzle diameter override. When omitted, use
+            the printer's currently installed primary nozzle diameter.
+        filament_id: Optional exact filament ID filter, for example ``GFG00``.
+        extruder_id: Optional extruder filter (``0`` or ``1``).
     """
     # Check printer exists
     result = await db.execute(select(Printer).where(Printer.id == printer_id))
@@ -52,8 +58,19 @@ async def get_kprofiles(
     if not client or not client.state.connected:
         raise HTTPException(400, "Printer not connected")
 
+    resolved_nozzle_diameter = (
+        nozzle_diameter.strip()
+        if nozzle_diameter and nozzle_diameter.strip()
+        else nozzle_diameter_for_extruder(client.state, extruder=0, model=printer.model)
+    )
+
     # Request K-profiles from printer
-    profiles = await client.get_kprofiles(nozzle_diameter=nozzle_diameter)
+    profiles = await client.get_kprofiles(nozzle_diameter=resolved_nozzle_diameter)
+    resolved_filament_id = filament_id.strip() if filament_id and filament_id.strip() else None
+    if resolved_filament_id:
+        profiles = [profile for profile in profiles if profile.filament_id == resolved_filament_id]
+    if extruder_id is not None:
+        profiles = [profile for profile in profiles if profile.extruder_id == extruder_id]
 
     # Convert from MQTT dataclass to Pydantic schema
     return KProfilesResponse(
@@ -73,7 +90,7 @@ async def get_kprofiles(
             )
             for p in profiles
         ],
-        nozzle_diameter=nozzle_diameter,
+        nozzle_diameter=resolved_nozzle_diameter,
     )
 
 

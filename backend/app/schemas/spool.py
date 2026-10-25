@@ -288,6 +288,22 @@ class SpoolResponse(SpoolBase):
         populate_by_name = True
 
 
+class CompactSpoolResponse(BaseModel):
+    """Small inventory representation for constrained API clients."""
+
+    id: int
+    material: str
+    subtype: str | None = None
+    rgba: str | None = None
+    extra_colors: str | None = None
+    brand: str | None = None
+    available_weight: int
+    available_percent: int
+    assigned: bool
+    loaded: bool
+    printing: bool
+
+
 class MaterialNumberStats(BaseModel):
     """Per-material-number inventory aggregate (#2870).
 

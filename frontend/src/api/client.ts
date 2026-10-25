@@ -1863,6 +1863,8 @@ export interface SlicerSettingDeleteResponse {
 export interface BuiltinFilament {
   filament_id: string;
   name: string;
+  nozzle_temp_min: number;
+  nozzle_temp_max: number;
 }
 
 // Slice request/response — POST /library/files/{id}/slice and /archives/{id}/slice
@@ -6429,8 +6431,14 @@ export const api = {
     ),
 
   // K-Profiles
-  getKProfiles: (printerId: number, nozzleDiameter = '0.4') =>
-    request<KProfilesResponse>(`/printers/${printerId}/kprofiles/?nozzle_diameter=${nozzleDiameter}`),
+  getKProfiles: (printerId: number, nozzleDiameter?: string, filamentId?: string, extruderId?: number) => {
+    const params = new URLSearchParams();
+    if (nozzleDiameter) params.set('nozzle_diameter', nozzleDiameter);
+    if (filamentId) params.set('filament_id', filamentId);
+    if (extruderId !== undefined) params.set('extruder_id', String(extruderId));
+    const query = params.size ? `?${params.toString()}` : '';
+    return request<KProfilesResponse>(`/printers/${printerId}/kprofiles/${query}`);
+  },
   setKProfile: (printerId: number, profile: KProfileCreate) =>
     request<{ success: boolean; message: string }>(`/printers/${printerId}/kprofiles/`, {
       method: 'POST',

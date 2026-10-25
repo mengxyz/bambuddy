@@ -33,6 +33,7 @@ from backend.app.models.supplier import SpoolmanSpoolSupplier, SpoolSupplier, Su
 from backend.app.models.user import User
 from backend.app.schemas.location import LocationCreate, LocationResponse, LocationUpdate
 from backend.app.schemas.spool import (
+    CompactSpoolResponse,
     MaterialNumberStats,
     SpoolAssignmentCreate,
     SpoolAssignmentResponse,
@@ -109,6 +110,15 @@ def spool_response_loads():
         selectinload(Spool.k_profiles),
         selectinload(Spool.supplier_links).selectinload(SpoolSupplier.supplier),
     )
+
+
+def _compact_assignment_global_tray_id(ams_id: int, tray_id: int) -> int:
+    """Convert a stored assignment to the global tray id reported by printer status."""
+    if ams_id in (254, 255):
+        return 254 + tray_id
+    if ams_id >= 128:
+        return ams_id
+    return ams_id * 4 + tray_id
 
 
 # Bounded read size for the CSV import body so a chunked upload with no
@@ -1393,6 +1403,99 @@ async def list_spools(
     query = query.order_by(Spool.material, Spool.brand, Spool.color_name)
     result = await db.execute(query)
     return list(result.scalars().all())
+
+
+@router.get("/spools/compact", response_model=list[CompactSpoolResponse])
+async def list_spools_compact(
+    include_archived: bool = False,
+    assigned: bool | None = None,
+    loaded: bool | None = None,
+    printing: bool | None = None,
+    db: AsyncSession = Depends(get_db),
+    _: User | None = RequirePermissionIfAuthEnabled(Permission.INVENTORY_READ),
+):
+    """List only the spool fields needed by constrained display clients."""
+    from backend.app.services.printer_manager import printer_manager
+
+    query = select(
+        Spool.id,
+        Spool.material,
+        Spool.subtype,
+        Spool.rgba,
+        Spool.extra_colors,
+        Spool.brand,
+        Spool.label_weight,
+        Spool.weight_used,
+    )
+    if not include_archived:
+        query = query.where(Spool.archived_at.is_(None))
+    query = query.order_by(Spool.material, Spool.brand, Spool.color_name)
+    result = await db.execute(query)
+    spool_rows = list(result.all())
+
+    assignments_by_spool: dict[int, list[tuple[int, int, int]]] = {}
+    if spool_rows:
+        assignment_result = await db.execute(
+            select(
+                SpoolAssignment.spool_id,
+                SpoolAssignment.printer_id,
+                SpoolAssignment.ams_id,
+                SpoolAssignment.tray_id,
+            ).where(SpoolAssignment.spool_id.in_([row.id for row in spool_rows]))
+        )
+        for assignment in assignment_result.all():
+            assignments_by_spool.setdefault(assignment.spool_id, []).append(
+                (assignment.printer_id, assignment.ams_id, assignment.tray_id)
+            )
+
+    printer_statuses = printer_manager.get_all_statuses() if assignments_by_spool else {}
+
+    compact_spools: list[CompactSpoolResponse] = []
+    for row in spool_rows:
+        label_weight = float(row.label_weight or 0)
+        available_weight = max(0.0, label_weight - float(row.weight_used or 0))
+        available_percent = round(min(100.0, available_weight / label_weight * 100)) if label_weight > 0 else 0
+        assignments = assignments_by_spool.get(row.id, [])
+        is_assigned = bool(assignments)
+        is_loaded = False
+        is_printing = False
+        for printer_id, ams_id, tray_id in assignments:
+            status = printer_statuses.get(printer_id)
+            if status is None or not status.connected:
+                continue
+
+            global_tray_id = _compact_assignment_global_tray_id(ams_id, tray_id)
+            slot_loaded = status.tray_now == global_tray_id
+            if not slot_loaded:
+                slot_loaded = any(
+                    slot.has_filament and slot.holds(ams_id, tray_id) for slot in status.extruder_slots.values()
+                )
+            is_loaded = is_loaded or slot_loaded
+            is_printing = is_printing or (slot_loaded and status.state == "RUNNING")
+
+        if assigned is not None and is_assigned != assigned:
+            continue
+        if loaded is not None and is_loaded != loaded:
+            continue
+        if printing is not None and is_printing != printing:
+            continue
+
+        compact_spools.append(
+            CompactSpoolResponse(
+                id=row.id,
+                material=row.material,
+                subtype=row.subtype,
+                rgba=row.rgba,
+                extra_colors=row.extra_colors,
+                brand=row.brand,
+                available_weight=round(available_weight),
+                available_percent=available_percent,
+                assigned=is_assigned,
+                loaded=is_loaded,
+                printing=is_printing,
+            )
+        )
+    return compact_spools
 
 
 # ── CSV import / export (#1576) ──────────────────────────────────────────────

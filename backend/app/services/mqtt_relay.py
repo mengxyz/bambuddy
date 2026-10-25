@@ -7,6 +7,7 @@ Node-RED, Home Assistant, and other MQTT-based platforms.
 import asyncio
 import json
 import logging
+import math
 import ssl
 import threading
 import time
@@ -14,7 +15,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 import paho.mqtt.client as mqtt
+from sqlalchemy import select
 
+from backend.app.core.database import async_session
+from backend.app.models.spool import Spool
+from backend.app.models.spool_assignment import SpoolAssignment
+from backend.app.models.spoolman_slot_assignment import SpoolmanSlotAssignment
 from backend.app.utils.ams_humidity import ams_humidity_percent
 from backend.app.utils.paho_teardown import retire_paho_client
 
@@ -29,6 +35,17 @@ def _relay_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def _relay_float(value: Any) -> float | None:
+    """Parse a finite numeric value while rejecting bools and malformed strings."""
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+
 def _relay_global_tray_id(ams_id: int, tray_id: int) -> int:
     """Return Bambuddy's stable global tray id for regular, HT, and external slots."""
     if ams_id >= 255:
@@ -38,10 +55,11 @@ def _relay_global_tray_id(ams_id: int, tray_id: int) -> int:
     return ams_id * 4 + tray_id
 
 
-def _build_ams_relay_status(state: Any) -> dict:
+def _build_ams_relay_status(state: Any, linked_spools: dict[int, dict[str, Any]] | None = None) -> dict:
     """Build a compact, stable AMS snapshot suitable for small MQTT consumers."""
     raw_data = getattr(state, "raw_data", None) or {}
     tray_now = _relay_int(getattr(state, "tray_now", 255), 255)
+    linked_spools = linked_spools or {}
     units = []
 
     raw_units = raw_data.get("ams")
@@ -58,19 +76,20 @@ def _build_ams_relay_status(state: Any) -> dict:
                         continue
                     tray_id = _relay_int(raw_tray.get("id"))
                     global_id = _relay_global_tray_id(ams_id, tray_id)
-                    trays.append(
-                        {
-                            "id": tray_id,
-                            "global_id": global_id,
-                            "exists": raw_tray.get("exists"),
-                            "active": global_id == tray_now,
-                            "type": raw_tray.get("tray_type") or "",
-                            "sub_brand": raw_tray.get("tray_sub_brands") or "",
-                            "name": raw_tray.get("tray_id_name") or "",
-                            "color": raw_tray.get("tray_color") or "",
-                            "remaining_percent": _relay_int(raw_tray.get("remain")),
-                        }
-                    )
+                    tray_payload = {
+                        "id": tray_id,
+                        "global_id": global_id,
+                        "exists": raw_tray.get("exists"),
+                        "active": global_id == tray_now,
+                        "type": raw_tray.get("tray_type") or "",
+                        "sub_brand": raw_tray.get("tray_sub_brands") or "",
+                        "name": raw_tray.get("tray_id_name") or "",
+                        "color": raw_tray.get("tray_color") or "",
+                        "remaining_percent": _relay_int(raw_tray.get("remain")),
+                    }
+                    if linked_spool := linked_spools.get(global_id):
+                        tray_payload.update(linked_spool)
+                    trays.append(tray_payload)
 
             humidity = ams_humidity_percent(raw_unit)
             units.append(
@@ -92,17 +111,18 @@ def _build_ams_relay_status(state: Any) -> dict:
             if not isinstance(raw_tray, dict):
                 continue
             tray_id = _relay_int(raw_tray.get("id"), 254)
-            external_trays.append(
-                {
-                    "id": tray_id,
-                    "active": tray_id == tray_now,
-                    "type": raw_tray.get("tray_type") or "",
-                    "sub_brand": raw_tray.get("tray_sub_brands") or "",
-                    "name": raw_tray.get("tray_id_name") or "",
-                    "color": raw_tray.get("tray_color") or "",
-                    "remaining_percent": _relay_int(raw_tray.get("remain")),
-                }
-            )
+            tray_payload = {
+                "id": tray_id,
+                "active": tray_id == tray_now,
+                "type": raw_tray.get("tray_type") or "",
+                "sub_brand": raw_tray.get("tray_sub_brands") or "",
+                "name": raw_tray.get("tray_id_name") or "",
+                "color": raw_tray.get("tray_color") or "",
+                "remaining_percent": _relay_int(raw_tray.get("remain")),
+            }
+            if linked_spool := linked_spools.get(tray_id):
+                tray_payload.update(linked_spool)
+            external_trays.append(tray_payload)
 
     return {
         "tray_now": tray_now,
@@ -136,6 +156,7 @@ class MQTTRelayService:
 
     # Minimum interval between status updates per printer (seconds)
     STATUS_THROTTLE_SECONDS = 1.0
+    LINKED_SPOOL_CACHE_SECONDS = 10.0
 
     def __init__(self):
         self.client: mqtt.Client | None = None
@@ -147,6 +168,7 @@ class MQTTRelayService:
         self._broker = ""
         self._port = 1883
         self._last_printer_status: dict[int, float] = {}  # printer_id -> last publish timestamp
+        self._linked_spool_cache: dict[int, tuple[float, dict[int, dict[str, Any]]]] = {}
         self._smart_plug_service = None  # Lazy import to avoid circular dependency
         self._settings: dict = {}  # Store settings for smart plug service
         self._disconnection_event: threading.Event | None = None
@@ -353,6 +375,94 @@ class MQTTRelayService:
     # Printer Events
     # =========================================================================
 
+    async def _get_linked_spools(self, printer_id: int) -> dict[int, dict[str, Any]]:
+        """Return global tray id -> compact linked-spool values, with a short cache."""
+        cached = self._linked_spool_cache.get(printer_id)
+        now = time.monotonic()
+        if cached and now - cached[0] < self.LINKED_SPOOL_CACHE_SECONDS:
+            return cached[1]
+
+        try:
+            async with async_session() as db:
+                from backend.app.services.inventory_mode import spoolman_owns_assignments
+
+                if await spoolman_owns_assignments(db):
+                    assignment_result = await db.execute(
+                        select(
+                            SpoolmanSlotAssignment.ams_id,
+                            SpoolmanSlotAssignment.tray_id,
+                            SpoolmanSlotAssignment.spoolman_spool_id,
+                        ).where(SpoolmanSlotAssignment.printer_id == printer_id)
+                    )
+                    assignments = list(assignment_result.all())
+                    linked = {
+                        _relay_global_tray_id(row.ams_id, row.tray_id): {
+                            "spool_id": row.spoolman_spool_id,
+                            "spool_weight": None,
+                            "spool_weight_percent": None,
+                        }
+                        for row in assignments
+                    }
+
+                    if assignments:
+                        from backend.app.services.spoolman import get_spoolman_client
+
+                        client = await get_spoolman_client()
+                        if client is not None:
+                            try:
+                                fetched_spools = await asyncio.wait_for(client.get_spools(), timeout=2.0)
+                            except Exception as exc:  # noqa: BLE001 - keep spool IDs when Spoolman is unavailable
+                                logger.debug("Could not fetch Spoolman weights for MQTT status: %s", exc)
+                            else:
+                                spools = {_relay_int(spool.get("id"), -1): spool for spool in fetched_spools}
+                                for row in assignments:
+                                    spool = spools.get(row.spoolman_spool_id)
+                                    if not spool:
+                                        continue
+                                    filament = spool.get("filament") or {}
+                                    total = _relay_float(spool.get("initial_weight"))
+                                    if not total or total <= 0:
+                                        total = _relay_float(filament.get("weight"))
+                                    remaining = _relay_float(spool.get("remaining_weight"))
+                                    if remaining is None:
+                                        used = _relay_float(spool.get("used_weight"))
+                                        if total is not None and total > 0 and used is not None:
+                                            remaining = max(0.0, total - used)
+                                    global_id = _relay_global_tray_id(row.ams_id, row.tray_id)
+                                    if remaining is not None:
+                                        linked[global_id]["spool_weight"] = round(max(0.0, remaining))
+                                    if total is not None and total > 0 and remaining is not None:
+                                        linked[global_id]["spool_weight_percent"] = round(
+                                            min(100.0, max(0.0, remaining / total * 100))
+                                        )
+                else:
+                    assignment_result = await db.execute(
+                        select(
+                            SpoolAssignment.ams_id,
+                            SpoolAssignment.tray_id,
+                            Spool.id,
+                            Spool.label_weight,
+                            Spool.weight_used,
+                        )
+                        .join(Spool, Spool.id == SpoolAssignment.spool_id)
+                        .where(SpoolAssignment.printer_id == printer_id)
+                    )
+                    linked = {}
+                    for row in assignment_result.all():
+                        total = float(row.label_weight or 0)
+                        remaining = max(0.0, total - float(row.weight_used or 0))
+                        linked[_relay_global_tray_id(row.ams_id, row.tray_id)] = {
+                            "spool_id": row.id,
+                            "spool_weight": round(remaining),
+                            "spool_weight_percent": round(min(100.0, remaining / total * 100)) if total > 0 else 0,
+                        }
+        except Exception as exc:  # noqa: BLE001 - status publishing must survive inventory failures
+            logger.debug("Could not enrich MQTT status with linked spools for printer %s: %s", printer_id, exc)
+            return cached[1] if cached else {}
+
+        self._linked_spool_cache[printer_id] = (now, linked)
+        return linked
+
     async def on_printer_status(
         self,
         printer_id: int,
@@ -371,6 +481,8 @@ class MQTTRelayService:
         if now - last_publish < self.STATUS_THROTTLE_SECONDS:
             return  # Skip this update, too soon since last publish
         self._last_printer_status[printer_id] = now
+
+        linked_spools = await self._get_linked_spools(printer_id)
 
         # Build status payload from PrinterState
         payload = {
@@ -400,7 +512,7 @@ class MQTTRelayService:
             # Compact snapshots for dashboards and embedded displays. These are
             # deliberately normalized rather than forwarding firmware-specific
             # raw MQTT keys, so P1/X1/H2 families share one consumer contract.
-            "ams": _build_ams_relay_status(state),
+            "ams": _build_ams_relay_status(state, linked_spools),
             "extruder": _build_extruder_relay_status(state),
             # Bambuddy-side gate, not printer telemetry (#2525). Mirrors what the
             # Web UI already receives via printer_state_to_dict, so an external
