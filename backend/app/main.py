@@ -1867,10 +1867,13 @@ async def on_printer_status_change(printer_id: int, state: PrinterState):
                 printer_info.name,
                 printer_info.serial_number,
                 printer_manager.is_awaiting_plate_clear(printer_id),
-                printer_model=printer_info.model,
+                printer_model=printer_manager.get_model(printer_id),
             )
     except Exception:
-        pass  # Don't fail status callback if MQTT fails
+        # MQTT must not break the printer-status callback, but programming
+        # errors here must remain visible instead of silently stopping every
+        # subsequent relay update.
+        logging.getLogger(__name__).exception("MQTT status publish failed for printer %s", printer_id)
 
     if _last_status_broadcast.get(printer_id) == status_key:
         return  # No change, skip WebSocket broadcast

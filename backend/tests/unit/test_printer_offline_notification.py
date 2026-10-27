@@ -220,6 +220,34 @@ class TestOfflineEdgeDetection:
         assert main_module._printer_last_connected[1] is False
 
     @pytest.mark.asyncio
+    async def test_mqtt_status_uses_model_cache(self):
+        """PrinterInfo intentionally contains only name and serial number."""
+        ws_mgr, relay, pm = self._patch_handler_deps()
+        pm.get_printer.return_value = SimpleNamespace(name="Workshop", serial_number="P1S-SERIAL")
+        pm.get_model.return_value = "P1S"
+        pm.is_awaiting_plate_clear.return_value = False
+
+        with (
+            patch("backend.app.main.ws_manager", ws_mgr),
+            patch("backend.app.main.mqtt_relay", relay),
+            patch("backend.app.main.printer_manager", pm),
+            _spawn_patch(),
+            patch("backend.app.main.printer_state_to_dict", return_value={}),
+        ):
+            state = _state(connected=True)
+            await main_module.on_printer_status_change(1, state)
+
+        pm.get_model.assert_called_with(1)
+        relay.on_printer_status.assert_awaited_once_with(
+            1,
+            state,
+            "Workshop",
+            "P1S-SERIAL",
+            False,
+            printer_model="P1S",
+        )
+
+    @pytest.mark.asyncio
     async def test_connected_to_disconnected_schedules_task(self):
         ws_mgr, relay, pm = self._patch_handler_deps()
         with (

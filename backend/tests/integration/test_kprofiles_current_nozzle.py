@@ -25,9 +25,7 @@ def _profile(slot_id: int, filament_id: str, extruder_id: int = 0):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_kprofiles_uses_current_printer_nozzle_when_filter_omitted(
-    async_client: AsyncClient, printer_factory
-):
+async def test_kprofiles_uses_current_printer_nozzle_when_filter_omitted(async_client: AsyncClient, printer_factory):
     printer = await printer_factory(model="P1S")
     client = MagicMock()
     client.state = SimpleNamespace(
@@ -85,9 +83,7 @@ async def test_kprofiles_filters_by_filament_id(async_client: AsyncClient, print
     )
 
     with patch("backend.app.api.routes.kprofiles.printer_manager.get_client", return_value=client):
-        response = await async_client.get(
-            f"/api/v1/printers/{printer.id}/kprofiles/", params={"filament_id": "GFG00"}
-        )
+        response = await async_client.get(f"/api/v1/printers/{printer.id}/kprofiles/", params={"filament_id": "GFG00"})
 
     assert response.status_code == 200
     data = response.json()
@@ -149,9 +145,7 @@ async def test_kprofiles_extruder_zero_is_not_treated_as_missing(async_client: A
     )
 
     with patch("backend.app.api.routes.kprofiles.printer_manager.get_client", return_value=client):
-        response = await async_client.get(
-            f"/api/v1/printers/{printer.id}/kprofiles/", params={"extruder_id": 0}
-        )
+        response = await async_client.get(f"/api/v1/printers/{printer.id}/kprofiles/", params={"extruder_id": 0})
 
     assert response.status_code == 200
     assert [profile["slot_id"] for profile in response.json()["profiles"]] == [31]
