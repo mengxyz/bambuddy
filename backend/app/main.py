@@ -1867,6 +1867,7 @@ async def on_printer_status_change(printer_id: int, state: PrinterState):
                 printer_info.name,
                 printer_info.serial_number,
                 printer_manager.is_awaiting_plate_clear(printer_id),
+                printer_model=printer_info.model,
             )
     except Exception:
         pass  # Don't fail status callback if MQTT fails

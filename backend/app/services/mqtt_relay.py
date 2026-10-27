@@ -21,6 +21,7 @@ from backend.app.core.database import async_session
 from backend.app.models.spool import Spool
 from backend.app.models.spool_assignment import SpoolAssignment
 from backend.app.models.spoolman_slot_assignment import SpoolmanSlotAssignment
+from backend.app.services.printer_manager import get_derived_status_name
 from backend.app.utils.ams_humidity import ams_humidity_percent
 from backend.app.utils.paho_teardown import retire_paho_client
 
@@ -470,6 +471,7 @@ class MQTTRelayService:
         printer_name: str,
         printer_serial: str,
         awaiting_plate_clear: bool = False,
+        printer_model: str | None = None,
     ):
         """Publish printer status change (throttled to 1 update/sec per printer)."""
         if not self.enabled or not self.connected:
@@ -492,6 +494,7 @@ class MQTTRelayService:
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "connected": state.connected,
             "state": state.state,
+            "stg_cur_name": get_derived_status_name(state, printer_model),
             "progress": state.progress,
             "remaining_time": state.remaining_time,
             "layer_num": state.layer_num,

@@ -29,6 +29,7 @@ def _state() -> SimpleNamespace:
     return SimpleNamespace(
         connected=True,
         state="FINISH",
+        stg_cur=-1,
         progress=100,
         remaining_time=0,
         layer_num=250,
@@ -84,6 +85,44 @@ class TestStatusPayload:
         # The pre-existing telemetry fields must survive the addition.
         assert payload["state"] == "FINISH"
         assert payload["progress"] == 100
+        assert payload["speed_level"] == 2
+
+    @pytest.mark.asyncio
+    async def test_status_payload_carries_model_aware_stage_name(self):
+        relay = _relay()
+        state = _state()
+        state.state = "RUNNING"
+        state.stg_cur = 1
+
+        await relay.on_printer_status(
+            3,
+            state,
+            "Workshop P1S",
+            "01S00C000000003",
+            printer_model="P1S",
+        )
+
+        _, payload, _ = _published(relay)[0]
+        assert payload["stg_cur_name"] == "Auto bed leveling"
+        assert payload["speed_level"] == 2
+
+    @pytest.mark.asyncio
+    async def test_status_payload_suppresses_p1s_idle_stage_zero(self):
+        relay = _relay()
+        state = _state()
+        state.state = "IDLE"
+        state.stg_cur = 0
+
+        await relay.on_printer_status(
+            3,
+            state,
+            "Workshop P1S",
+            "01S00C000000003",
+            printer_model="P1S",
+        )
+
+        _, payload, _ = _published(relay)[0]
+        assert payload["stg_cur_name"] is None
 
     @pytest.mark.asyncio
     async def test_status_payload_carries_normalized_ams_and_extruder_state(self):
