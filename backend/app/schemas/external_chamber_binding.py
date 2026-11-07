@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from backend.app.schemas.not_null import IgnoresNullForRequiredColumns
+
 
 class ExternalChamberBindingBase(BaseModel):
     printer_id: int
@@ -32,10 +34,19 @@ class ExternalChamberBindingBase(BaseModel):
 
 
 class ExternalChamberBindingCreate(ExternalChamberBindingBase):
-    ventilation_ready_entity_id: str = Field(pattern=r"^binary_sensor\.[a-z0-9_]+$", max_length=255)
+    ventilation_ready_entity_id: str | None = Field(pattern=r"^binary_sensor\.[a-z0-9_]+$", max_length=255)
+
+    @field_validator("ventilation_ready_entity_id")
+    @classmethod
+    def require_ventilation_ready_entity(cls, value: str | None) -> str:
+        if value is None:
+            raise ValueError("Ventilation Ready entity is required")
+        return value
 
 
-class ExternalChamberBindingUpdate(BaseModel):
+class ExternalChamberBindingUpdate(IgnoresNullForRequiredColumns):
+    __orm_table__ = "external_chamber_bindings"
+
     printer_id: int | None = None
     name: str | None = Field(default=None, min_length=1, max_length=100)
     climate_entity_id: str | None = Field(default=None, pattern=r"^climate\.[a-z0-9_]+$", max_length=255)

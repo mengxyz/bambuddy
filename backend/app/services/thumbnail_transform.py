@@ -38,9 +38,11 @@ def transform_thumbnail(
     if width is None and height is None:
         target_width, target_height = source_width, source_height
     elif width is None:
+        assert height is not None
         target_height = height
         target_width = max(1, round(source_width * target_height / source_height))
     elif height is None:
+        assert width is not None
         target_width = width
         target_height = max(1, round(source_height * target_width / source_width))
     else:

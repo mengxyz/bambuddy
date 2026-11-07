@@ -104,12 +104,20 @@ class TestFindLocalIPv4Network:
     """#3092: an address carries no prefix, so it has to be read off the interface."""
 
     def test_reads_the_configured_prefix_not_a_guessed_24(self):
-        with _fake_ip_addr(), patch.object(network_utils, "_IP_CMD", "/usr/sbin/ip"):
+        with (
+            _fake_ip_addr(),
+            patch.object(network_utils, "_IP_CMD", "/usr/sbin/ip"),
+            patch.object(network_utils.sys, "platform", "linux"),
+        ):
             assert str(network_utils.find_local_ipv4_network("192.168.96.9")) == "192.168.96.0/22"
 
     def test_an_alias_address_resolves_too(self):
         # The VP binds aliases; an alias is a perfectly good route source.
-        with _fake_ip_addr(), patch.object(network_utils, "_IP_CMD", "/usr/sbin/ip"):
+        with (
+            _fake_ip_addr(),
+            patch.object(network_utils, "_IP_CMD", "/usr/sbin/ip"),
+            patch.object(network_utils.sys, "platform", "linux"),
+        ):
             assert str(network_utils.find_local_ipv4_network("10.0.0.6")) == "10.0.0.0/24"
 
     def test_an_excluded_interface_still_answers(self):
@@ -118,12 +126,20 @@ class TestFindLocalIPv4Network:
         It must not also make the kernel's own choice of route source
         unanswerable — "unknown" would be a worse answer than the truth.
         """
-        with _fake_ip_addr(), patch.object(network_utils, "_IP_CMD", "/usr/sbin/ip"):
+        with (
+            _fake_ip_addr(),
+            patch.object(network_utils, "_IP_CMD", "/usr/sbin/ip"),
+            patch.object(network_utils.sys, "platform", "linux"),
+        ):
             assert str(network_utils.find_local_ipv4_network("172.17.0.1")) == "172.17.0.0/16"
             assert not [i for i in network_utils.get_all_interface_ips() if i["name"] == "docker0"]
 
     def test_an_address_no_interface_holds_is_none(self):
-        with _fake_ip_addr(), patch.object(network_utils, "_IP_CMD", "/usr/sbin/ip"):
+        with (
+            _fake_ip_addr(),
+            patch.object(network_utils, "_IP_CMD", "/usr/sbin/ip"),
+            patch.object(network_utils.sys, "platform", "linux"),
+        ):
             assert network_utils.find_local_ipv4_network("192.168.1.1") is None
 
     def test_a_hostname_is_none(self):

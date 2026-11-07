@@ -6,9 +6,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.routes.settings import get_homeassistant_settings
-from backend.app.core.auth import RequirePermissionIfAuthEnabled
+from backend.app.core.auth import RequestPrinterScope, RequirePermissionIfAuthEnabled
 from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
+from backend.app.core.printer_scope import PrinterScope
 from backend.app.models.external_chamber_binding import ExternalChamberBinding
 from backend.app.models.printer import Printer
 from backend.app.models.user import User
@@ -77,11 +78,15 @@ async def _validate_entities(
 @router.get("/", response_model=list[ExternalChamberBindingResponse])
 async def list_bindings(
     printer_id: int | None = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = _READ,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     query = select(ExternalChamberBinding).order_by(ExternalChamberBinding.name)
+    if (clause := printer_scope.where_strict(ExternalChamberBinding.printer_id)) is not None:
+        query = query.where(clause)
     if printer_id is not None:
+        printer_scope.ensure(printer_id)
         query = query.where(ExternalChamberBinding.printer_id == printer_id)
     return list((await db.scalars(query)).all())
 
@@ -89,7 +94,7 @@ async def list_bindings(
 @router.get("/entities", response_model=list[ExternalChamberEntity])
 async def list_entities(
     search: str | None = Query(default=None, max_length=100),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = _READ,
 ):
     settings = await get_homeassistant_settings(db)
@@ -109,7 +114,7 @@ async def list_entities(
 @router.post("/test", response_model=ExternalChamberTestResponse)
 async def test_controller(
     data: ExternalChamberTestRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = _READ,
 ):
     try:
@@ -129,9 +134,16 @@ async def test_controller(
 @router.post("/", response_model=ExternalChamberBindingResponse, status_code=201)
 async def create_binding(
     data: ExternalChamberBindingCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = _CREATE,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
+    printer_scope.ensure(data.printer_id)
+    ventilation_ready_entity_id = data.ventilation_ready_entity_id
+    if ventilation_ready_entity_id is None:
+        # The create schema rejects this as well; keep the runtime guard here so
+        # static analysis and future direct callers share the same invariant.
+        raise HTTPException(422, "Ventilation Ready entity is required")
     printer = await db.get(Printer, data.printer_id)
     if not printer:
         raise HTTPException(404, "Printer not found")
@@ -142,7 +154,7 @@ async def create_binding(
         data.climate_entity_id,
         data.duration_entity_id,
         data.heater_ready_entity_id,
-        data.ventilation_ready_entity_id,
+        ventilation_ready_entity_id,
         data.ventilation_fan_entity_id,
     )
     clash = await db.scalar(
@@ -152,7 +164,7 @@ async def create_binding(
                 ExternalChamberBinding.climate_entity_id == data.climate_entity_id,
                 ExternalChamberBinding.duration_entity_id == data.duration_entity_id,
                 ExternalChamberBinding.heater_ready_entity_id == data.heater_ready_entity_id,
-                ExternalChamberBinding.ventilation_ready_entity_id == data.ventilation_ready_entity_id,
+                ExternalChamberBinding.ventilation_ready_entity_id == ventilation_ready_entity_id,
                 *(
                     [ExternalChamberBinding.ventilation_fan_entity_id == data.ventilation_fan_entity_id]
                     if data.ventilation_fan_entity_id
@@ -178,11 +190,12 @@ async def create_binding(
 @router.get("/{binding_id}", response_model=ExternalChamberBindingResponse)
 async def get_binding(
     binding_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = _READ,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     binding = await db.get(ExternalChamberBinding, binding_id)
-    if not binding:
+    if not binding or not printer_scope.allows(binding.printer_id):
         raise HTTPException(404, "External chamber binding not found")
     return binding
 
@@ -191,11 +204,12 @@ async def get_binding(
 async def update_binding(
     binding_id: int,
     data: ExternalChamberBindingUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = _UPDATE,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     binding = await db.get(ExternalChamberBinding, binding_id)
-    if not binding:
+    if not binding or not printer_scope.allows(binding.printer_id):
         raise HTTPException(404, "External chamber binding not found")
     updates = data.model_dump(exclude_unset=True)
     entity_fields = {
@@ -212,6 +226,7 @@ async def update_binding(
             raise HTTPException(409, "Cannot disable the binding until its active session can be stopped safely")
     old_printer_id = binding.printer_id
     printer_id = updates.get("printer_id", binding.printer_id)
+    printer_scope.ensure(printer_id)
     if printer_id != binding.printer_id:
         printer = await db.get(Printer, printer_id)
         if not printer:
@@ -284,11 +299,12 @@ async def update_binding(
 @router.delete("/{binding_id}")
 async def delete_binding(
     binding_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _: User | None = _DELETE,
+    printer_scope: PrinterScope = RequestPrinterScope,
 ):
     binding = await db.get(ExternalChamberBinding, binding_id)
-    if not binding:
+    if not binding or not printer_scope.allows(binding.printer_id):
         raise HTTPException(404, "External chamber binding not found")
     printer_id = binding.printer_id
     if binding.owner_queue_item_id is not None:
