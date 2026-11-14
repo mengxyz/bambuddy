@@ -204,3 +204,36 @@ async def test_cool_mode_rejection_turns_fan_back_off(monkeypatch):
     assert ok is False
     assert "cool" in error
     turn_off.assert_awaited_once_with("fan.chamber_ventilation")
+
+
+@pytest.mark.asyncio
+async def test_aborted_preheat_is_marked_stopping_and_forced_off():
+    manager = ExternalChamberManager()
+    binding = _binding()
+    binding.owner_queue_item_id = 42
+    binding.lifecycle_state = "heating"
+    db = AsyncMock()
+    db.scalar.return_value = binding
+    manager.command_off = AsyncMock(return_value=True)
+
+    await manager.cleanup_aborted_dispatch(db, 42)
+
+    assert binding.lifecycle_state == "stopping"
+    db.commit.assert_awaited_once()
+    manager.command_off.assert_awaited_once_with(db, binding, force=True)
+
+
+@pytest.mark.asyncio
+async def test_running_external_chamber_is_not_stopped_by_dispatch_cleanup():
+    manager = ExternalChamberManager()
+    binding = _binding()
+    binding.owner_queue_item_id = 42
+    binding.lifecycle_state = "running"
+    db = AsyncMock()
+    db.scalar.return_value = binding
+    manager.command_off = AsyncMock(return_value=True)
+
+    await manager.cleanup_aborted_dispatch(db, 42)
+
+    db.commit.assert_not_awaited()
+    manager.command_off.assert_not_awaited()

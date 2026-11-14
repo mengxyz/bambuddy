@@ -198,6 +198,10 @@ _CHAMBER_DIP_GRACE_SECONDS = 360.0
 # and the printer stays in `busy_printers`, blocking every other queued item
 # behind a print that is not happening.
 _PREHEAT_CANCEL_CHECK_SECONDS = 10.0
+# Home Assistant service calls can return before a climate entity publishes
+# its new mode and target.  Treat that short propagation window as pending,
+# not as a manual takeover; the external-chamber poller refreshes every 10s.
+_EXTERNAL_CHAMBER_COMMAND_GRACE_SECONDS = 15.0
 # set_airduct_mode modeId values (bambu_mqtt.py:5937 — 0 cooling, 1 heating).
 _AIRDUCT_MODE_COOLING = 0
 _AIRDUCT_MODE_HEATING = 1
@@ -7869,6 +7873,7 @@ class PrintScheduler:
         # mock. Treat only an ORM row as a configured binding.
         external_binding = external_candidate if isinstance(external_candidate, ExternalChamberBinding) else None
         external_active = False
+        external_command_grace_deadline: float | None = None
         if chamber_mode == "cool" and external_binding is None:
             if explicit_mode == "cool":
                 item.status = "failed"
@@ -7910,6 +7915,9 @@ class PrintScheduler:
                 )
                 return True
             external_active = True
+            external_command_grace_deadline = (
+                asyncio.get_running_loop().time() + _EXTERNAL_CHAMBER_COMMAND_GRACE_SECONDS
+            )
 
         bed_target = await _queued_plate_bed_temperature(item, archive)
         if bed_target <= 0:
@@ -8145,6 +8153,30 @@ class PrintScheduler:
                     and external_fan_matches
                 )
                 if not external_session_valid:
+                    grace_remaining = (
+                        external_command_grace_deadline - asyncio.get_running_loop().time()
+                        if external_command_grace_deadline is not None
+                        else 0.0
+                    )
+                    if grace_remaining > 0:
+                        logger.info(
+                            "Queue item %s: waiting for external chamber command to propagate "
+                            "(reported mode=%s target=%s, expected mode=%s target=%d, grace=%.1fs)",
+                            item.id,
+                            external_status.get("mode"),
+                            external_status.get("target_temperature"),
+                            chamber_mode,
+                            chamber_target,
+                            grace_remaining,
+                        )
+                        if not await self._preheat_sleep(item.id, min(POLL_INTERVAL, grace_remaining)):
+                            logger.info(
+                                "Queue item %s: preheat aborted while waiting for the external chamber command",
+                                item.id,
+                            )
+                            self._stop_preheat_aux_fan(item.id, client, pin)
+                            return False
+                        continue
                     reason = "External chamber readiness was lost before print start"
                     if external_mode_ready:
                         reason = "External chamber was changed manually before print start"

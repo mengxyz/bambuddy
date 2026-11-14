@@ -330,7 +330,18 @@ class ExternalChamberManager:
         candidate = await pending if inspect.isawaitable(pending) else pending
         binding = candidate if isinstance(candidate, ExternalChamberBinding) else None
         if binding and binding.lifecycle_state != "running":
-            await self.command_off(db, binding)
+            # A failed/cancelled preheat must fail safe.  Compare-and-stop is
+            # appropriate for a normally-owned session because it preserves a
+            # deliberate manual takeover, but an aborted dispatch has no print
+            # left to supervise.  Persist `stopping` before the command so the
+            # background poller retries if Home Assistant is temporarily down.
+            binding.lifecycle_state = "stopping"
+            await db.commit()
+            if not await self.command_off(db, binding, force=True):
+                logger.warning(
+                    "External chamber safe-stop failed for aborted queue item %s; background retry scheduled",
+                    queue_item_id,
+                )
 
     def overlay(self, printer_id: int, payload: dict) -> dict:
         external = self.get_status(printer_id)
@@ -368,13 +379,19 @@ class ExternalChamberManager:
                         if binding.owner_queue_item_id is None:
                             continue
 
-                        if binding.lifecycle_state == "stopping" and status["mode"] == "off":
-                            fan_stopped = (
-                                not binding.ventilation_fan_entity_id
-                                or await homeassistant_service.turn_off_fan(binding.ventilation_fan_entity_id)
-                            )
-                            if fan_stopped:
-                                await self.relinquish(db, binding)
+                        if binding.lifecycle_state == "stopping":
+                            if status["mode"] == "off":
+                                fan_stopped = (
+                                    not binding.ventilation_fan_entity_id
+                                    or await homeassistant_service.turn_off_fan(binding.ventilation_fan_entity_id)
+                                )
+                                if fan_stopped:
+                                    await self.relinquish(db, binding)
+                            else:
+                                # Safe-stop owns this transition.  Do not let a
+                                # stale target/mode look like manual takeover and
+                                # discard the retry before OFF reaches the device.
+                                await self.command_off(db, binding, force=True)
                             continue
 
                         # A local/HA target or mode change is manual takeover.
@@ -414,11 +431,7 @@ class ExternalChamberManager:
                         if recovering and item.status != "printing":
                             binding.lifecycle_state = "stopping"
                             await db.commit()
-                            await self.command_off(db, binding)
-                            continue
-
-                        if binding.lifecycle_state == "stopping":
-                            await self.command_off(db, binding)
+                            await self.command_off(db, binding, force=True)
                             continue
 
                         mode_ready = (

@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
+from backend.app.models.external_chamber_binding import ExternalChamberBinding
 from backend.app.services.print_scheduler import PrintScheduler
 
 
@@ -79,6 +80,25 @@ def _ints(**values):
     """Mock side_effect for _get_int_setting that returns the kwarg value
     when the key matches, else the helper's `default` argument."""
     return AsyncMock(side_effect=lambda _db, key, default: values.get(key, default))
+
+
+def _external_chamber_binding(*, printer_id: int, queue_item_id: int, target: int, strict: bool = True):
+    return ExternalChamberBinding(
+        id=1,
+        printer_id=printer_id,
+        name="External chamber",
+        climate_entity_id="climate.chamber",
+        duration_entity_id="number.chamber_duration",
+        heater_ready_entity_id="binary_sensor.chamber_heater_ready",
+        ventilation_ready_entity_id="binary_sensor.chamber_ventilation_ready",
+        enabled=True,
+        strict=strict,
+        owner_queue_item_id=queue_item_id,
+        owned_target=target,
+        owned_duration_minutes=15,
+        owned_mode="heat",
+        lifecycle_state="heating",
+    )
 
 
 # ----------------------------------------------------------------------------
@@ -600,6 +620,56 @@ async def test_p1_aux_fan_stops_when_preheat_is_cancelled(scheduler, item, archi
     client.set_fan_speed.assert_has_calls([call(2, 153), call(2, 0)])
     assert client.set_fan_speed.call_count == 2
     assert "aux_fan" not in scheduler._preheat_pin.get(7, set())
+
+
+@pytest.mark.asyncio
+async def test_external_chamber_waits_for_ha_command_state_to_propagate(scheduler, item, archive):
+    """HA can acknowledge a service call before the climate state changes.
+
+    A stale first read is command propagation, not a human takeover.  Keep the
+    preheat owned and poll again instead of failing a strict binding within a
+    few milliseconds of sending the command.
+    """
+    db = AsyncMock()
+    client = _make_client()
+    item.preheat_override = "on"
+    item.preheat_chamber_target_override = 60
+    binding = _external_chamber_binding(printer_id=7, queue_item_id=item.id, target=60)
+    db.scalar.return_value = binding
+    stale = {
+        "heater_ready": True,
+        "mode": "off",
+        "target_temperature": 50,
+        "current_temperature": 25,
+    }
+    applied = {
+        "heater_ready": True,
+        "mode": "heat",
+        "target_temperature": 60,
+        "current_temperature": 60,
+    }
+
+    with (
+        patch.object(scheduler, "_get_bool_setting", AsyncMock(return_value=True)),
+        patch.object(scheduler, "_get_int_setting", _ints(preheat_soak_seconds=0)),
+        patch.object(scheduler, "_preheat_sleep", AsyncMock(return_value=True)) as wait_for_propagation,
+        patch("backend.app.services.print_scheduler.printer_manager") as pm,
+        patch(
+            "backend.app.services.external_chamber.external_chamber_manager.command_mode",
+            AsyncMock(return_value=(True, None)),
+        ),
+        patch(
+            "backend.app.services.external_chamber.external_chamber_manager.get_status",
+            MagicMock(side_effect=[stale, applied]),
+        ),
+    ):
+        pm.get_client.return_value = client
+        pm.get_status.return_value = _make_state(60.0, 0.0)
+        assert await scheduler._preheat_and_soak(db, item, _make_printer("P1S"), archive) is True
+
+    wait_for_propagation.assert_awaited_once_with(item.id, 3.0)
+    client.set_bed_temperature.assert_called_once_with(60)
+    client.set_chamber_temperature.assert_not_called()
 
 
 @pytest.mark.asyncio
