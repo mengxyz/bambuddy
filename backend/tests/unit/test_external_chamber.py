@@ -1,14 +1,18 @@
+from datetime import timedelta
 from unittest.mock import AsyncMock
 
 import pytest
 
 from backend.app.models.external_chamber_binding import ExternalChamberBinding
 from backend.app.services.external_chamber import (
+    COMMAND_PROPAGATION_GRACE_SECONDS,
+    STATE_FAILURE_CONFIRMATIONS,
     ExternalChamberManager,
     parse_controller_state,
     validate_controller_contract,
 )
 from backend.app.services.homeassistant import homeassistant_service
+from backend.app.utils.local_time import utcnow_naive
 
 
 def _climate():
@@ -237,3 +241,23 @@ async def test_running_external_chamber_is_not_stopped_by_dispatch_cleanup():
 
     db.commit.assert_not_awaited()
     manager.command_off.assert_not_awaited()
+
+
+def test_manual_takeover_requires_consecutive_observations_after_command_grace():
+    manager = ExternalChamberManager()
+    binding = _binding()
+    binding.lease_renewed_at = utcnow_naive()
+
+    # Service-call propagation is never counted as a manual takeover.
+    for _ in range(STATE_FAILURE_CONFIRMATIONS + 1):
+        assert manager._ownership_mismatch_confirmed(binding, mismatched=True) is False
+
+    binding.lease_renewed_at = utcnow_naive() - timedelta(seconds=COMMAND_PROPAGATION_GRACE_SECONDS + 1)
+    for _ in range(STATE_FAILURE_CONFIRMATIONS - 1):
+        assert manager._ownership_mismatch_confirmed(binding, mismatched=True) is False
+    assert manager._ownership_mismatch_confirmed(binding, mismatched=True) is True
+
+    # One matching observation clears a partial debounce sequence.
+    assert manager._ownership_mismatch_confirmed(binding, mismatched=True) is False
+    assert manager._ownership_mismatch_confirmed(binding, mismatched=False) is False
+    assert manager._ownership_mismatch_confirmed(binding, mismatched=True) is False

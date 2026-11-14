@@ -673,6 +673,99 @@ async def test_external_chamber_waits_for_ha_command_state_to_propagate(schedule
 
 
 @pytest.mark.asyncio
+async def test_strict_external_chamber_recovers_before_failure_is_confirmed(scheduler, item, archive):
+    db = AsyncMock()
+    client = _make_client()
+    item.preheat_override = "on"
+    item.preheat_chamber_target_override = 60
+    binding = _external_chamber_binding(printer_id=7, queue_item_id=item.id, target=60)
+    db.scalar.return_value = binding
+    invalid = {
+        "heater_ready": False,
+        "mode": "heat",
+        "target_temperature": 60,
+        "current_temperature": 25,
+    }
+    recovered = {
+        "heater_ready": True,
+        "mode": "heat",
+        "target_temperature": 60,
+        "current_temperature": 60,
+    }
+
+    with (
+        patch.object(scheduler, "_get_bool_setting", AsyncMock(return_value=True)),
+        patch.object(scheduler, "_get_int_setting", _ints(preheat_soak_seconds=0)),
+        patch.object(scheduler, "_preheat_sleep", AsyncMock(return_value=True)) as confirmation_wait,
+        patch("backend.app.services.print_scheduler.printer_manager") as pm,
+        patch("backend.app.services.external_chamber.COMMAND_PROPAGATION_GRACE_SECONDS", 0),
+        patch(
+            "backend.app.services.external_chamber.external_chamber_manager.command_mode",
+            AsyncMock(return_value=(True, None)),
+        ),
+        patch(
+            "backend.app.services.external_chamber.external_chamber_manager.get_status",
+            MagicMock(return_value=invalid),
+        ),
+        patch(
+            "backend.app.services.external_chamber.external_chamber_manager.refresh_binding",
+            AsyncMock(side_effect=[invalid, invalid, recovered]),
+        ) as refresh,
+    ):
+        pm.get_client.return_value = client
+        pm.get_status.return_value = _make_state(60.0, 0.0)
+        assert await scheduler._preheat_and_soak(db, item, _make_printer("P1S"), archive) is True
+
+    assert refresh.await_count == 3
+    assert confirmation_wait.await_count == 2
+    assert getattr(item, "status", None) != "failed"
+
+
+@pytest.mark.asyncio
+async def test_strict_external_chamber_fails_after_three_fresh_invalid_observations(scheduler, item, archive):
+    db = AsyncMock()
+    client = _make_client()
+    item.preheat_override = "on"
+    item.preheat_chamber_target_override = 60
+    binding = _external_chamber_binding(printer_id=7, queue_item_id=item.id, target=60)
+    db.scalar.return_value = binding
+    invalid = {
+        "heater_ready": False,
+        "mode": "heat",
+        "target_temperature": 60,
+        "current_temperature": 25,
+    }
+
+    with (
+        patch.object(scheduler, "_get_bool_setting", AsyncMock(return_value=True)),
+        patch.object(scheduler, "_get_int_setting", _ints(preheat_soak_seconds=0)),
+        patch.object(scheduler, "_preheat_sleep", AsyncMock(return_value=True)) as confirmation_wait,
+        patch("backend.app.services.print_scheduler.printer_manager") as pm,
+        patch("backend.app.services.external_chamber.COMMAND_PROPAGATION_GRACE_SECONDS", 0),
+        patch(
+            "backend.app.services.external_chamber.external_chamber_manager.command_mode",
+            AsyncMock(return_value=(True, None)),
+        ),
+        patch(
+            "backend.app.services.external_chamber.external_chamber_manager.get_status",
+            MagicMock(return_value=invalid),
+        ),
+        patch(
+            "backend.app.services.external_chamber.external_chamber_manager.refresh_binding",
+            AsyncMock(return_value=invalid),
+        ) as refresh,
+    ):
+        pm.get_client.return_value = client
+        pm.get_status.return_value = _make_state(60.0, 0.0)
+        assert await scheduler._preheat_and_soak(db, item, _make_printer("P1S"), archive) is False
+
+    assert refresh.await_count == 3
+    assert confirmation_wait.await_count == 2
+    assert item.status == "failed"
+    assert item.error_message == "External chamber readiness was lost before print start"
+
+
+@pytest.mark.asyncio
 async def test_lost_client_skips_silently(scheduler, item, archive):
     """If the MQTT client drops, the helper returns without raising."""
     db = AsyncMock()

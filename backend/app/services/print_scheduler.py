@@ -198,10 +198,6 @@ _CHAMBER_DIP_GRACE_SECONDS = 360.0
 # and the printer stays in `busy_printers`, blocking every other queued item
 # behind a print that is not happening.
 _PREHEAT_CANCEL_CHECK_SECONDS = 10.0
-# Home Assistant service calls can return before a climate entity publishes
-# its new mode and target.  Treat that short propagation window as pending,
-# not as a manual takeover; the external-chamber poller refreshes every 10s.
-_EXTERNAL_CHAMBER_COMMAND_GRACE_SECONDS = 15.0
 # set_airduct_mode modeId values (bambu_mqtt.py:5937 — 0 cooling, 1 heating).
 _AIRDUCT_MODE_COOLING = 0
 _AIRDUCT_MODE_HEATING = 1
@@ -7860,7 +7856,12 @@ class PrintScheduler:
         # non-strict means "skip the complete preheat stage", not "heat the bed
         # anyway and hope".
         from backend.app.models.external_chamber_binding import ExternalChamberBinding
-        from backend.app.services.external_chamber import LEASE_MINUTES, external_chamber_manager
+        from backend.app.services.external_chamber import (
+            COMMAND_PROPAGATION_GRACE_SECONDS,
+            LEASE_MINUTES,
+            STATE_FAILURE_CONFIRMATIONS,
+            external_chamber_manager,
+        )
 
         external_candidate = await db.scalar(
             select(ExternalChamberBinding).where(
@@ -7915,9 +7916,7 @@ class PrintScheduler:
                 )
                 return True
             external_active = True
-            external_command_grace_deadline = (
-                asyncio.get_running_loop().time() + _EXTERNAL_CHAMBER_COMMAND_GRACE_SECONDS
-            )
+            external_command_grace_deadline = asyncio.get_running_loop().time() + COMMAND_PROPAGATION_GRACE_SECONDS
 
         bed_target = await _queued_plate_bed_temperature(item, archive)
         if bed_target <= 0:
@@ -8122,6 +8121,27 @@ class PrintScheduler:
         CHAMBER_TOLERANCE = 2.0
         POLL_INTERVAL = 3.0
         deadline = asyncio.get_event_loop().time() + max_wait
+        external_failure_confirmations = 0
+
+        def external_session_state(status: dict) -> tuple[bool, bool]:
+            assert external_binding is not None
+            target_matches = status.get("target_temperature") is not None and int(status["target_temperature"]) == int(
+                external_binding.owned_target or -1
+            )
+            mode_ready = (
+                status.get("heater_ready") is True
+                if chamber_mode == "heat"
+                else status.get("ventilation_ready") is True
+            )
+            fan_matches = (
+                True
+                if chamber_mode != "cool" or not external_binding.ventilation_fan_entity_id
+                else status.get("fan_percentage") == external_binding.owned_fan_percentage
+            )
+            return (
+                mode_ready and status.get("mode") == chamber_mode and target_matches and fan_matches,
+                mode_ready,
+            )
 
         while True:
             state = printer_manager.get_status(printer.id)
@@ -8133,25 +8153,7 @@ class PrintScheduler:
             if external_active:
                 assert external_binding is not None
                 external_status = external_chamber_manager.get_status(printer.id) or {}
-                external_target_matches = external_status.get("target_temperature") is not None and int(
-                    external_status["target_temperature"]
-                ) == int(external_binding.owned_target or -1)
-                external_mode_ready = (
-                    external_status.get("heater_ready") is True
-                    if chamber_mode == "heat"
-                    else external_status.get("ventilation_ready") is True
-                )
-                external_fan_matches = (
-                    True
-                    if chamber_mode != "cool" or not external_binding.ventilation_fan_entity_id
-                    else external_status.get("fan_percentage") == external_binding.owned_fan_percentage
-                )
-                external_session_valid = (
-                    external_mode_ready
-                    and external_status.get("mode") == chamber_mode
-                    and external_target_matches
-                    and external_fan_matches
-                )
+                external_session_valid, external_mode_ready = external_session_state(external_status)
                 if not external_session_valid:
                     grace_remaining = (
                         external_command_grace_deadline - asyncio.get_running_loop().time()
@@ -8177,6 +8179,39 @@ class PrintScheduler:
                             self._stop_preheat_aux_fan(item.id, client, pin)
                             return False
                         continue
+                    # The cached poll is only a signal to confirm directly.
+                    # Count fresh HA reads, not repeated scheduler reads of the
+                    # same cached sample, before strict mode fails the print.
+                    external_status = await external_chamber_manager.refresh_binding(db, external_binding)
+                    external_session_valid, external_mode_ready = external_session_state(external_status)
+                    if external_session_valid:
+                        if external_failure_confirmations:
+                            logger.info(
+                                "Queue item %s: external chamber recovered before failure confirmation",
+                                item.id,
+                            )
+                        external_failure_confirmations = 0
+                    else:
+                        external_failure_confirmations += 1
+                        if external_failure_confirmations < STATE_FAILURE_CONFIRMATIONS:
+                            logger.warning(
+                                "Queue item %s: external chamber state invalid (%d/%d); waiting for confirmation",
+                                item.id,
+                                external_failure_confirmations,
+                                STATE_FAILURE_CONFIRMATIONS,
+                            )
+                            if not await self._preheat_sleep(item.id, POLL_INTERVAL):
+                                logger.info(
+                                    "Queue item %s: preheat aborted while confirming external chamber state",
+                                    item.id,
+                                )
+                                self._stop_preheat_aux_fan(item.id, client, pin)
+                                return False
+                            continue
+                else:
+                    external_failure_confirmations = 0
+
+                if not external_session_valid:
                     reason = "External chamber readiness was lost before print start"
                     if external_mode_ready:
                         reason = "External chamber was changed manually before print start"

@@ -18,6 +18,11 @@ logger = logging.getLogger(__name__)
 LEASE_MINUTES = 15
 LEASE_RENEW_SECONDS = 5 * 60
 POLL_SECONDS = 10
+# Home Assistant service calls can complete before the entity publishes the
+# requested mode/target.  A short grace plus consecutive observations prevents
+# that propagation lag from looking like manual takeover or a failed heater.
+COMMAND_PROPAGATION_GRACE_SECONDS = 15.0
+STATE_FAILURE_CONFIRMATIONS = 3
 
 
 def parse_controller_state(
@@ -131,6 +136,7 @@ def validate_controller_contract(
 class ExternalChamberManager:
     def __init__(self):
         self._cache: dict[int, dict] = {}
+        self._ownership_mismatch_counts: dict[int, int] = {}
         self._stopping = asyncio.Event()
 
     def get_status(self, printer_id: int) -> dict | None:
@@ -139,6 +145,37 @@ class ExternalChamberManager:
 
     def forget(self, printer_id: int) -> None:
         self._cache.pop(printer_id, None)
+        self._ownership_mismatch_counts.pop(printer_id, None)
+
+    def _ownership_mismatch_confirmed(
+        self,
+        binding: ExternalChamberBinding,
+        mismatched: bool,
+    ) -> bool:
+        """Return true only after a command mismatch survives fresh HA polls."""
+        printer_id = binding.printer_id
+        if not mismatched:
+            self._ownership_mismatch_counts.pop(printer_id, None)
+            return False
+
+        renewed = binding.lease_renewed_at
+        if renewed is not None and (utcnow_naive() - renewed).total_seconds() < COMMAND_PROPAGATION_GRACE_SECONDS:
+            self._ownership_mismatch_counts.pop(printer_id, None)
+            return False
+
+        confirmations = self._ownership_mismatch_counts.get(printer_id, 0) + 1
+        if confirmations < STATE_FAILURE_CONFIRMATIONS:
+            self._ownership_mismatch_counts[printer_id] = confirmations
+            logger.info(
+                "External chamber command mismatch for printer %s (%d/%d); waiting for confirmation",
+                printer_id,
+                confirmations,
+                STATE_FAILURE_CONFIRMATIONS,
+            )
+            return False
+
+        self._ownership_mismatch_counts.pop(printer_id, None)
+        return True
 
     async def configure(self, db: AsyncSession) -> bool:
         settings = await get_homeassistant_settings(db)
@@ -263,6 +300,7 @@ class ExternalChamberManager:
                 await homeassistant_service.turn_off_fan(binding.ventilation_fan_entity_id)
             return False, f"External chamber controller rejected the {mode} command"
         if queue_item_id is not None:
+            self._ownership_mismatch_counts.pop(binding.printer_id, None)
             binding.owner_queue_item_id = queue_item_id
             binding.owned_target = target
             binding.owned_duration_minutes = duration_minutes
@@ -305,6 +343,7 @@ class ExternalChamberManager:
         return ok
 
     async def relinquish(self, db: AsyncSession, binding: ExternalChamberBinding) -> None:
+        self._ownership_mismatch_counts.pop(binding.printer_id, None)
         binding.owner_queue_item_id = None
         binding.owned_target = None
         binding.owned_duration_minutes = None
@@ -377,9 +416,11 @@ class ExternalChamberManager:
                     for binding in bindings:
                         status = await self.refresh_binding(db, binding)
                         if binding.owner_queue_item_id is None:
+                            self._ownership_mismatch_counts.pop(binding.printer_id, None)
                             continue
 
                         if binding.lifecycle_state == "stopping":
+                            self._ownership_mismatch_counts.pop(binding.printer_id, None)
                             if status["mode"] == "off":
                                 fan_stopped = (
                                     not binding.ventilation_fan_entity_id
@@ -403,13 +444,16 @@ class ExternalChamberManager:
                         fan_matches = True
                         if owned_mode == "cool" and binding.ventilation_fan_entity_id:
                             fan_matches = status.get("fan_percentage") == binding.owned_fan_percentage
-                        if (
+                        ownership_mismatch = (
                             status["mode"] not in {owned_mode, "unavailable"}
                             or not fan_matches
                             or (status["target_temperature"] is not None and not target_matches)
-                        ):
+                        )
+                        if self._ownership_mismatch_confirmed(binding, ownership_mismatch):
                             logger.info("External chamber ownership relinquished for printer %s", binding.printer_id)
                             await self.relinquish(db, binding)
+                            continue
+                        if ownership_mismatch:
                             continue
 
                         from backend.app.models.print_queue import PrintQueueItem
