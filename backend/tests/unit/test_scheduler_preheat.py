@@ -13,7 +13,7 @@ got scheduled, not wall-clock.
 """
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -48,6 +48,7 @@ def _make_client():
     client.set_bed_temperature = MagicMock(return_value=True)
     client.set_chamber_temperature = MagicMock(return_value=True)
     client.set_airduct_mode = MagicMock(return_value=True)
+    client.set_fan_speed = MagicMock(return_value=True)
     return client
 
 
@@ -143,6 +144,7 @@ async def test_item_override_on_runs_despite_global_off(scheduler, item, archive
 
     client.set_bed_temperature.assert_called_once_with(60)
     client.set_chamber_temperature.assert_not_called()
+    client.set_fan_speed.assert_not_called()
 
 
 # ----------------------------------------------------------------------------
@@ -508,10 +510,96 @@ async def test_p1s_no_chamber_sensor_uses_soak_timer_only(scheduler, item, archi
 
     client.set_bed_temperature.assert_called_once_with(60)
     client.set_chamber_temperature.assert_not_called()
+    client.set_fan_speed.assert_not_called()
     # The soak is slept in slices so a cancellation landing mid-hold is noticed
     # (a single 600s sleep could not see one), so assert the total rather than a
     # single call of the full duration.
     assert sum(call.args[0] for call in sleep_mock.call_args_list) == 600
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model", ["P1S", "P1P", "C12", "C11"])
+async def test_p1_aux_fan_circulates_during_warmup_and_soak(scheduler, item, archive, model):
+    """The optional P1 fan starts after M140 and stops before preheat returns."""
+    db = AsyncMock()
+    client = _make_client()
+    events: list[tuple[str, int]] = []
+    client.set_bed_temperature.side_effect = lambda target: events.append(("bed", target)) or True
+    client.set_fan_speed.side_effect = lambda fan, speed: events.append((f"fan-{fan}", speed)) or True
+    sleep_mock = AsyncMock(side_effect=lambda seconds: events.append(("sleep", int(seconds))))
+
+    with (
+        patch.object(scheduler, "_get_bool_setting", AsyncMock(return_value=True)),
+        patch.object(
+            scheduler,
+            "_get_int_setting",
+            _ints(preheat_soak_seconds=10, preheat_p1_aux_fan_speed=40),
+        ),
+        patch.object(scheduler, "_get_setting", AsyncMock(return_value=None)),
+        patch("backend.app.services.print_scheduler.printer_manager") as pm,
+        patch("backend.app.services.print_scheduler.asyncio.sleep", sleep_mock),
+    ):
+        pm.get_client.return_value = client
+        pm.get_status.return_value = _make_state(60.0, 0.0, trays=["ABS"])
+        assert await scheduler._preheat_and_soak(db, item, _make_printer(model), archive) is True
+
+    client.set_fan_speed.assert_has_calls([call(2, 102), call(2, 0)])
+    assert client.set_fan_speed.call_count == 2
+    assert events[0:2] == [("bed", 60), ("fan-2", 102)]
+    assert events[-1] == ("fan-2", 0)
+    assert any(event[0] == "sleep" for event in events[2:-1])
+    assert "aux_fan" not in scheduler._preheat_pin.get(7, set())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model", ["A1", "X1C", "P2S", "H2D"])
+async def test_p1_aux_fan_setting_is_ignored_on_other_models(scheduler, item, archive, model):
+    """The initial rollout must not move fans on other printer families."""
+    db = AsyncMock()
+    client = _make_client()
+
+    with (
+        patch.object(scheduler, "_get_bool_setting", AsyncMock(return_value=True)),
+        patch.object(
+            scheduler,
+            "_get_int_setting",
+            _ints(preheat_soak_seconds=0, preheat_p1_aux_fan_speed=50),
+        ),
+        patch.object(scheduler, "_get_setting", AsyncMock(return_value=None)),
+        patch("backend.app.services.print_scheduler.printer_manager") as pm,
+        patch("backend.app.services.print_scheduler.asyncio.sleep", AsyncMock()),
+    ):
+        pm.get_client.return_value = client
+        pm.get_status.return_value = _make_state(60.0, 52.0, trays=["ABS"])
+        await scheduler._preheat_and_soak(db, item, _make_printer(model), archive)
+
+    client.set_fan_speed.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_p1_aux_fan_stops_when_preheat_is_cancelled(scheduler, item, archive):
+    """Cancellation during warm-up cannot leave the temporary circulation fan running."""
+    db = AsyncMock()
+    client = _make_client()
+
+    with (
+        patch.object(scheduler, "_get_bool_setting", AsyncMock(return_value=True)),
+        patch.object(
+            scheduler,
+            "_get_int_setting",
+            _ints(preheat_soak_seconds=300, preheat_p1_aux_fan_speed=60),
+        ),
+        patch.object(scheduler, "_get_setting", AsyncMock(return_value=None)),
+        patch.object(scheduler, "_preheat_sleep", AsyncMock(return_value=False)),
+        patch("backend.app.services.print_scheduler.printer_manager") as pm,
+    ):
+        pm.get_client.return_value = client
+        pm.get_status.return_value = _make_state(20.0, 0.0, trays=["ABS"])
+        assert await scheduler._preheat_and_soak(db, item, _make_printer("P1S"), archive) is False
+
+    client.set_fan_speed.assert_has_calls([call(2, 153), call(2, 0)])
+    assert client.set_fan_speed.call_count == 2
+    assert "aux_fan" not in scheduler._preheat_pin.get(7, set())
 
 
 @pytest.mark.asyncio

@@ -2589,6 +2589,8 @@ export default {
     preheatMaxWaitHelp: 'Limit fazy nagrzewania komory, po którym następuje przejście dalej.',
     preheatSoak: 'Wygrzewanie (sekundy)',
     preheatSoakHelp: 'Czas utrzymania po osiągnięciu temperatury docelowej lub upływie maks. czasu oczekiwania.',
+    preheatP1AuxFanSpeed: 'Wentylator pomocniczy P1 podczas nagrzewania (%)',
+    preheatP1AuxFanSpeedHelp: 'Tylko P1P/P1S. 0 wyłącza. Działa podczas nagrzewania i wygrzewania, aby rozprowadzać ciepło stołu, po czym zatrzymuje się przed wysyłaniem pliku.',
     preheatHardwareTitle: 'Zachowanie wg drukarki:',
     preheatHardwareDetail: 'H2C/H2D/H2D Pro/H2S/X2D/X1E aktywnie grzeją komorę przez M141. X1C/P2S odczytują temperaturę komory, ale polegają na ogrzewaniu promieniowaniem stołu. P1S/P1P/A1/A1 Mini nie mają czujnika komory — działa tylko czas wygrzewania.',
     preheatPerItemDesc: 'Podgrzej stół i komorę przed startem tego wydruku. Domyślnie zgodnie z globalnym przełącznikiem Ustawienia → Przepływ pracy.',

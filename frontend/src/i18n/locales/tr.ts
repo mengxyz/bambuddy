@@ -2550,6 +2550,8 @@ export default {
     preheatMaxWaitHelp: 'Soak\'a geçilmeden önce oda ısıtma aşaması için üst sınır.',
     preheatSoak: 'Soak (saniye)',
     preheatSoakHelp: 'Hedefe ulaşıldıktan veya maks. bekleme dolduktan sonra tutma süresi.',
+    preheatP1AuxFanSpeed: 'Ön ısıtma sırasında P1 yardımcı fanı (%)',
+    preheatP1AuxFanSpeedHelp: 'Yalnızca P1P/P1S. 0 devre dışı bırakır. Tabla ısısını dağıtmak için ısınma ve soak sırasında çalışır, yüklemeden önce durur.',
     preheatHardwareTitle: 'Yazıcıya göre davranış:',
     preheatHardwareDetail: 'H2C/H2D/H2D Pro/H2S/X2D/X1E odayı M141 ile aktif ısıtır. X1C/P2S oda sıcaklığını okur ancak yalnızca tabla radyasyonu ile ısınır. P1S/P1P/A1/A1 Mini\'de oda sensörü yoktur — yalnızca soak zamanlayıcısı geçerlidir.',
     preheatPerItemDesc: 'Bu baskı başlamadan önce tablayı ve odayı ısıtın. Varsayılan olarak Ayarlar → İş Akışı genel anahtarını kullanır.',

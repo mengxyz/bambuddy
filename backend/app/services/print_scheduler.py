@@ -84,6 +84,7 @@ from backend.app.utils.printer_models import (
     is_gcode_compatible,
     is_nozzle_rack_model,
     normalize_printer_model,
+    supports_p1_preheat_aux_fan,
 )
 from backend.app.utils.threemf_tools import (
     default_plate_number,
@@ -3110,9 +3111,9 @@ class PrintScheduler:
     def _rollback_preheat_pin(self, item_id: int, printer_id: int) -> None:
         """Unwind everything preheat set when dispatch did NOT hand off to a running print.
 
-        Turns the bed heater off, the chamber heater off, and opens the
-        airduct flap back to cooling — for whichever of those preheat
-        actually applied. `_start_print` clears the pin on successful
+        Turns the bed heater off, the chamber heater off, stops the temporary
+        P1 auxiliary fan, and opens the airduct flap back to cooling — for
+        whichever of those preheat actually applied. `_start_print` clears the pin on successful
         `start_print()`; anything still present when `_dispatch_one` exits
         is by definition an aborted dispatch and gets rolled back here.
 
@@ -3168,6 +3169,11 @@ class PrintScheduler:
                 client.set_chamber_temperature(0)
             except Exception as exc:
                 logger.warning("Dispatch item %s: rollback chamber → 0 failed: %s", item_id, exc)
+        if "aux_fan" in pin:
+            try:
+                client.set_fan_speed(2, 0)
+            except Exception as exc:
+                logger.warning("Dispatch item %s: rollback P1 auxiliary fan → 0 failed: %s", item_id, exc)
         if "airduct" in pin:
             try:
                 client.set_airduct_mode("cooling")
@@ -7671,6 +7677,20 @@ class PrintScheduler:
                 return False
         return True
 
+    @staticmethod
+    def _stop_preheat_aux_fan(item_id: int, client: object, pin: set[str]) -> None:
+        """Stop a P1 auxiliary fan owned by preheat, leaving failed stops pinned for rollback."""
+        if "aux_fan" not in pin:
+            return
+        try:
+            stopped = client.set_fan_speed(2, 0)  # type: ignore[attr-defined]
+            if stopped is False:
+                logger.warning("Queue item %s: preheat P1 auxiliary fan stop was refused", item_id)
+                return
+            pin.discard("aux_fan")
+        except Exception as exc:
+            logger.warning("Queue item %s: preheat P1 auxiliary fan stop failed: %s", item_id, exc)
+
     def _preheat_flap_to_cooling(self, item_id: int, printer: Printer) -> None:
         """Put the airduct flap back to cooling for a print that wants no chamber heat.
 
@@ -7761,6 +7781,12 @@ class PrintScheduler:
 
         max_wait = await self._get_int_setting(db, "preheat_max_wait_seconds", default=900)
         soak_seconds = await self._get_int_setting(db, "preheat_soak_seconds", default=300)
+        p1_aux_fan_speed = 0
+        if supports_p1_preheat_aux_fan(printer.model):
+            p1_aux_fan_speed = max(
+                0,
+                min(100, await self._get_int_setting(db, "preheat_p1_aux_fan_speed", default=0)),
+            )
 
         # Chamber target resolution:
         #   1. Explicit per-item override beats everything (user knows best).
@@ -8057,6 +8083,26 @@ class PrintScheduler:
         # readable afterwards; there are no pending writes to lose here.
         await db.commit()
 
+        # P1P/P1S have no chamber sensor, so their preheat stage relies on the
+        # bed and a fixed soak. Optionally circulate that radiant heat with the
+        # auxiliary part-cooling fan (M106 P2) for the complete warm-up + soak.
+        # The pin makes cancellation/error cleanup retry the stop; the normal
+        # completion path stops it explicitly before the 3MF upload begins.
+        if p1_aux_fan_speed > 0:
+            pwm_speed = round(p1_aux_fan_speed * 255 / 100)
+            try:
+                if client.set_fan_speed(2, pwm_speed):
+                    pin.add("aux_fan")
+                    logger.info(
+                        "Queue item %s: preheat P1 auxiliary fan started at %d%%",
+                        item.id,
+                        p1_aux_fan_speed,
+                    )
+                else:
+                    logger.warning("Queue item %s: preheat P1 auxiliary fan command was refused", item.id)
+            except Exception as exc:
+                logger.warning("Queue item %s: preheat P1 auxiliary fan start failed: %s", item.id, exc)
+
         # Wait for convergence. Bed warm-up is fast (~5 min from cold); chamber
         # via M141 takes a few minutes; chamber via bed radiation can take 20+.
         # Poll every 3s — frequent enough for responsive logging without
@@ -8108,6 +8154,7 @@ class PrintScheduler:
                         item.completed_at = datetime.now(timezone.utc)
                         await db.commit()
                         logger.warning("Queue item %s failed before upload: %s", item.id, reason)
+                        self._stop_preheat_aux_fan(item.id, client, pin)
                         return False
                     if external_mode_ready:
                         # Mode/target/fan changed: this is manual takeover, so
@@ -8121,6 +8168,7 @@ class PrintScheduler:
                         await db.commit()
                         await external_chamber_manager.command_off(db, external_binding)
                     logger.warning("Queue item %s: preheat skipped (non-strict): %s", item.id, reason)
+                    self._stop_preheat_aux_fan(item.id, client, pin)
                     return True
                 if external_status.get("current_temperature") is not None:
                     temps["chamber"] = external_status["current_temperature"]
@@ -8164,6 +8212,7 @@ class PrintScheduler:
                     "Queue item %s: preheat aborted — item cancelled or deleted while waiting for temperature",
                     item.id,
                 )
+                self._stop_preheat_aux_fan(item.id, client, pin)
                 return False
 
         if soak_seconds > 0:
@@ -8187,6 +8236,7 @@ class PrintScheduler:
                         "Queue item %s: preheat aborted — item cancelled or deleted during soak",
                         item.id,
                     )
+                    self._stop_preheat_aux_fan(item.id, client, pin)
                     return False
             else:
                 logger.info(
@@ -8196,6 +8246,7 @@ class PrintScheduler:
                     soak_seconds,
                 )
 
+        self._stop_preheat_aux_fan(item.id, client, pin)
         logger.info("Queue item %s: preheat complete — proceeding to upload", item.id)
         return True
 

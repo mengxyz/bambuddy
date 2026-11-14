@@ -307,6 +307,13 @@ def uses_exhaust_fan_label(model: str | None) -> bool:
 # the other way round.
 AUX_FANS_LEFT_FIRST_MODELS = frozenset(["X2D", "N6"])
 
+# Initial rollout for the preheat air-circulation option. P1S has the fan from
+# the factory; P1P can use the same part-2 command when an auxiliary fan has
+# been fitted. Keep this deliberately narrower than the general fan controls:
+# preheat should not begin moving air on other printer families merely because
+# they expose an auxiliary fan badge.
+P1_PREHEAT_AUX_FAN_MODELS = frozenset(["P1P", "P1S", "C11", "C12"])
+
 
 def aux_fan_sides(model: str | None) -> tuple[str, str]:
     """Which side the ``aux`` (part 2) and ``aux2`` (part 10) fans are on: ("left"|"right", ...)."""
@@ -314,6 +321,15 @@ def aux_fan_sides(model: str | None) -> tuple[str, str]:
     if normalized in AUX_FANS_LEFT_FIRST_MODELS:
         return "left", "right"
     return "right", "left"
+
+
+def supports_p1_preheat_aux_fan(model: str | None) -> bool:
+    """Whether preheat may use M106 P2 to circulate bed heat on this model."""
+    if not model:
+        return False
+    resolved = PRINTER_MODEL_ID_MAP.get(model.strip(), normalize_printer_model(model) or model)
+    normalized = resolved.strip().upper().replace(" ", "").replace("-", "")
+    return normalized in P1_PREHEAT_AUX_FAN_MODELS
 
 
 # Ceiling for every chamber-temperature target the UI and API accept (manual

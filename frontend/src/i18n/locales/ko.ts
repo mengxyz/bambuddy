@@ -2423,6 +2423,8 @@ export default {
     preheatMaxWaitHelp: '소크로 전환되기 전 챔버 가열 단계의 상한.',
     preheatSoak: '소크 (초)',
     preheatSoakHelp: '목표 도달 또는 최대 대기 경과 후 유지 시간.',
+    preheatP1AuxFanSpeed: '예열 중 P1 보조 팬 (%)',
+    preheatP1AuxFanSpeedHelp: 'P1P/P1S 전용입니다. 0이면 비활성화됩니다. 가열 및 소크 중 베드 열을 순환시키고 업로드 전에 정지합니다.',
     preheatHardwareTitle: '프린터별 동작:',
     preheatHardwareDetail: 'H2C/H2D/H2D Pro/H2S/X2D/X1E는 M141으로 챔버를 능동적으로 가열합니다. X1C/P2S는 챔버 온도를 읽지만 베드 복사열로만 가열됩니다. P1S/P1P/A1/A1 Mini는 챔버 센서가 없어 소크 타이머만 적용됩니다.',
     preheatPerItemDesc: '이 인쇄가 시작되기 전에 베드와 챔버를 가열합니다. 기본적으로 설정 → 워크플로의 전역 토글을 사용합니다.',

@@ -2546,6 +2546,8 @@ export default {
     preheatMaxWaitHelp: '進入保溫階段前的腔體預熱階段上限。',
     preheatSoak: '保溫（秒）',
     preheatSoakHelp: '達到目標或最長等待結束後的維持時間。',
+    preheatP1AuxFanSpeed: '預熱期間的 P1 輔助風扇（%）',
+    preheatP1AuxFanSpeedHelp: '僅限 P1P/P1S。設為 0 時停用。升溫和保溫期間運轉以循環熱床熱量，並在上傳前停止。',
     preheatHardwareTitle: '依印表機的行為：',
     preheatHardwareDetail: 'H2C/H2D/H2D Pro/H2S/X2D/X1E 透過 M141 主動加熱腔體。X1C/P2S 讀取腔體溫度但僅靠熱床輻射加熱。P1S/P1P/A1/A1 Mini 無腔體感測器 — 僅保溫計時器生效。',
     preheatPerItemDesc: '在本次列印開始前預熱熱床與腔體。預設使用設定 → 工作流程的全域開關。',

@@ -261,6 +261,7 @@ _INT_SETTING_KEYS = frozenset(
         "pipeline_max_copies",
         "preheat_max_wait_seconds",
         "preheat_soak_seconds",
+        "preheat_p1_aux_fan_speed",
         "queue_keep_warm_bed_temp",
         "queue_keep_warm_max_minutes",
         "queue_max_concurrent_uploads",

@@ -2501,6 +2501,8 @@ export default {
     preheatMaxWaitHelp: 'Limite della fase di riscaldamento camera prima del passaggio al soak.',
     preheatSoak: 'Soak (secondi)',
     preheatSoakHelp: 'Tenuta dopo il raggiungimento del target o lo scadere dell\'attesa max.',
+    preheatP1AuxFanSpeed: 'Ventola ausiliaria P1 durante il preriscaldamento (%)',
+    preheatP1AuxFanSpeedHelp: 'Solo P1P/P1S. 0 la disattiva. Funziona durante riscaldamento e soak per distribuire il calore del piatto, poi si arresta prima del caricamento.',
     preheatHardwareTitle: 'Comportamento per stampante:',
     preheatHardwareDetail: 'H2C/H2D/H2D Pro/H2S/X2D/X1E riscaldano attivamente la camera con M141. X1C/P2S leggono la temperatura ma scaldano la camera solo per irraggiamento dal piano. P1S/P1P/A1/A1 Mini non hanno sensore di camera — vale solo il timer di soak.',
     preheatPerItemDesc: 'Riscalda il piano e la camera prima dell\'avvio di questa stampa. Per impostazione predefinita usa l\'interruttore globale in Impostazioni → Workflow.',

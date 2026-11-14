@@ -1360,6 +1360,7 @@ export function SettingsPage() {
       (baseline.preheat_filament_targets ?? '') !== (localSettings.preheat_filament_targets ?? '') ||
       (baseline.preheat_max_wait_seconds ?? 900) !== (localSettings.preheat_max_wait_seconds ?? 900) ||
       (baseline.preheat_soak_seconds ?? 300) !== (localSettings.preheat_soak_seconds ?? 300) ||
+      (baseline.preheat_p1_aux_fan_speed ?? 0) !== (localSettings.preheat_p1_aux_fan_speed ?? 0) ||
       (baseline.queue_keep_bed_warm ?? false) !== (localSettings.queue_keep_bed_warm ?? false) ||
       (baseline.queue_keep_warm_bed_temp ?? 90) !== (localSettings.queue_keep_warm_bed_temp ?? 90) ||
       (baseline.queue_keep_warm_max_minutes ?? 120) !== (localSettings.queue_keep_warm_max_minutes ?? 120) ||
@@ -1489,6 +1490,7 @@ export function SettingsPage() {
         preheat_filament_targets: localSettings.preheat_filament_targets,
         preheat_max_wait_seconds: localSettings.preheat_max_wait_seconds,
         preheat_soak_seconds: localSettings.preheat_soak_seconds,
+        preheat_p1_aux_fan_speed: localSettings.preheat_p1_aux_fan_speed,
         queue_keep_bed_warm: localSettings.queue_keep_bed_warm,
         queue_keep_warm_bed_temp: localSettings.queue_keep_warm_bed_temp,
         queue_keep_warm_max_minutes: localSettings.queue_keep_warm_max_minutes,
@@ -5568,6 +5570,23 @@ export function SettingsPage() {
                     {t('settings.preheatSoakHelp', 'Hold time after target reached or max-wait elapsed.')}
                   </p>
                 </div>
+              </div>
+              <div className="pt-2 border-t border-bambu-dark-tertiary/50">
+                <label className="block text-xs text-bambu-gray mb-1">
+                  {t('settings.preheatP1AuxFanSpeed', 'P1 auxiliary fan during preheat (%)')}
+                </label>
+                <NumberInput
+                  min={0}
+                  max={100}
+                  value={localSettings.preheat_p1_aux_fan_speed ?? 0}
+                  onChange={(v) => updateSetting('preheat_p1_aux_fan_speed', v)}
+                  fallback={0}
+                  className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white text-sm focus:outline-none focus:border-bambu-green disabled:opacity-50"
+                  disabled={!(localSettings.preheat_enabled ?? false)}
+                />
+                <p className="text-xs text-bambu-gray mt-1">
+                  {t('settings.preheatP1AuxFanSpeedHelp', 'P1P/P1S only. 0 disables it. Runs during warm-up and soak to circulate bed heat, then stops before upload.')}
+                </p>
               </div>
               {/* Keep bed warm between consecutive queue prints */}
               <div className="flex items-center justify-between pt-2 border-t border-bambu-dark-tertiary/50">

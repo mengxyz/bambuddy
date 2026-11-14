@@ -15,6 +15,7 @@ from backend.app.utils.printer_models import (
     normalize_printer_model,
     normalize_printer_model_id,
     supports_nozzle_flow_type,
+    supports_p1_preheat_aux_fan,
 )
 
 
@@ -305,3 +306,13 @@ class TestHasRemoteStorageToggle:
         assert has_remote_storage_toggle("BrandNewModel2027") is True
         assert has_remote_storage_toggle(None) is True
         assert has_remote_storage_toggle("") is True
+
+
+class TestSupportsP1PreheatAuxFan:
+    @pytest.mark.parametrize("model", ["P1S", "P1P", "C12", "C11", "Bambu Lab P1S", "P1-S"])
+    def test_p1_models_and_ids_are_supported(self, model: str):
+        assert supports_p1_preheat_aux_fan(model) is True
+
+    @pytest.mark.parametrize("model", ["X1C", "P2S", "A1", "H2D", "", None])
+    def test_other_models_are_not_supported(self, model: str | None):
+        assert supports_p1_preheat_aux_fan(model) is False

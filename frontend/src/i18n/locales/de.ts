@@ -2546,6 +2546,8 @@ export default {
     preheatMaxWaitHelp: 'Obergrenze für die Aufwärmphase, bevor in den Soak gewechselt wird.',
     preheatSoak: 'Soak (Sekunden)',
     preheatSoakHelp: 'Haltezeit nach Erreichen des Ziels oder nach Ablauf der Max-Wartezeit.',
+    preheatP1AuxFanSpeed: 'P1-Zusatzlüfter beim Vorheizen (%)',
+    preheatP1AuxFanSpeedHelp: 'Nur P1P/P1S. 0 deaktiviert ihn. Läuft beim Aufheizen und Soak zur Verteilung der Bettwärme und stoppt vor dem Upload.',
     preheatHardwareTitle: 'Verhalten je Drucker:',
     preheatHardwareDetail: 'H2C/H2D/H2D Pro/H2S/X2D/X1E heizen die Kammer aktiv per M141. X1C/P2S lesen die Kammertemperatur, heizen sie aber nur per Bett-Abstrahlung. P1S/P1P/A1/A1 Mini haben keinen Kammersensor — nur der Soak-Timer greift.',
     preheatPerItemDesc: 'Bett und Kammer vor diesem Druck aufheizen. Standardmäßig wird der globale Umschalter aus Einstellungen → Workflow verwendet.',

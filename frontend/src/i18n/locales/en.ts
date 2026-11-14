@@ -2568,6 +2568,8 @@ export default {
     preheatMaxWaitHelp: 'Cap on the chamber warm-up phase before falling through.',
     preheatSoak: 'Soak (seconds)',
     preheatSoakHelp: 'Hold time after target reached or max-wait elapsed.',
+    preheatP1AuxFanSpeed: 'P1 auxiliary fan during preheat (%)',
+    preheatP1AuxFanSpeedHelp: 'P1P/P1S only. 0 disables it. Runs during warm-up and soak to circulate bed heat, then stops before upload.',
     preheatHardwareTitle: 'Per-printer behaviour:',
     preheatHardwareDetail: 'H2C/H2D/H2D Pro/H2S/X2D/X1E actively heat the chamber via M141. X1C/P2S read chamber temp but rely on bed-radiation heating. P1S/P1P/A1/A1 Mini have no chamber sensor — only the soak timer applies.',
     preheatPerItemDesc: 'Heat the bed and chamber before this print starts. Defaults to the global Settings → Workflow toggle.',

@@ -2545,6 +2545,8 @@ export default {
     preheatMaxWaitHelp: 'ソークへ移行するまでのチャンバー加熱フェーズの上限。',
     preheatSoak: 'ソーク（秒）',
     preheatSoakHelp: '目標到達後または最大待機経過後の保持時間。',
+    preheatP1AuxFanSpeed: '予熱中のP1補助ファン（%）',
+    preheatP1AuxFanSpeedHelp: 'P1P/P1Sのみ。0で無効。昇温中とソーク中にベッドの熱を循環させ、アップロード前に停止します。',
     preheatHardwareTitle: 'プリンター別の挙動:',
     preheatHardwareDetail: 'H2C/H2D/H2D Pro/H2S/X2D/X1EはM141でチャンバーを能動加熱します。X1C/P2Sはチャンバー温度を取得しますが、加熱はベッド放射のみです。P1S/P1P/A1/A1 Miniにはチャンバーセンサーがなく、ソークタイマーのみが適用されます。',
     preheatPerItemDesc: 'この印刷を開始する前にベッドとチャンバーを加熱します。既定では設定 → ワークフローのグローバルトグルを使用します。',

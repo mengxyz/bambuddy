@@ -1683,6 +1683,7 @@ export interface AppSettings {
   preheat_filament_targets: string;
   preheat_max_wait_seconds: number;
   preheat_soak_seconds: number;
+  preheat_p1_aux_fan_speed: number;
   queue_keep_bed_warm: boolean;
   queue_keep_warm_bed_temp: number;
   queue_keep_warm_max_minutes: number;

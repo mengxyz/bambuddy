@@ -2501,6 +2501,8 @@ export default {
     preheatMaxWaitHelp: 'Teto da fase de aquecimento da câmara antes de passar ao soak.',
     preheatSoak: 'Soak (segundos)',
     preheatSoakHelp: 'Tempo de retenção após atingir o alvo ou expirar a espera máx.',
+    preheatP1AuxFanSpeed: 'Ventoinha auxiliar P1 durante o pré-aquecimento (%)',
+    preheatP1AuxFanSpeedHelp: 'Somente P1P/P1S. 0 desativa. Funciona durante o aquecimento e o soak para distribuir o calor da mesa e para antes do envio.',
     preheatHardwareTitle: 'Comportamento por impressora:',
     preheatHardwareDetail: 'H2C/H2D/H2D Pro/H2S/X2D/X1E aquecem ativamente a câmara via M141. X1C/P2S leem a temperatura mas só aquecem a câmara por radiação da mesa. P1S/P1P/A1/A1 Mini não têm sensor de câmara — apenas o temporizador de soak se aplica.',
     preheatPerItemDesc: 'Aquece a mesa e a câmara antes desta impressão começar. Por padrão usa o interruptor global em Configurações → Workflow.',

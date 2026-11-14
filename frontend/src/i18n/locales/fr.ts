@@ -2501,6 +2501,8 @@ export default {
     preheatMaxWaitHelp: 'Plafond de la phase de chauffe de la chambre avant passage au soak.',
     preheatSoak: 'Soak (secondes)',
     preheatSoakHelp: 'Maintien après l\'atteinte de la cible ou l\'expiration de l\'attente max.',
+    preheatP1AuxFanSpeed: 'Ventilateur auxiliaire P1 pendant le préchauffage (%)',
+    preheatP1AuxFanSpeedHelp: 'P1P/P1S uniquement. 0 le désactive. Fonctionne pendant la chauffe et le soak pour répartir la chaleur du plateau, puis s’arrête avant l’envoi.',
     preheatHardwareTitle: 'Comportement par imprimante :',
     preheatHardwareDetail: 'H2C/H2D/H2D Pro/H2S/X2D/X1E chauffent activement la chambre via M141. X1C/P2S lisent la température mais ne chauffent la chambre que par rayonnement du plateau. P1S/P1P/A1/A1 Mini n\'ont pas de capteur de chambre — seul le minuteur de soak s\'applique.',
     preheatPerItemDesc: 'Chauffe le plateau et la chambre avant le démarrage de cette impression. Utilise par défaut le commutateur global de Paramètres → Workflow.',

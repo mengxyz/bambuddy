@@ -57,6 +57,7 @@ def _make_client():
     client.set_bed_temperature = MagicMock(return_value=True)
     client.set_chamber_temperature = MagicMock(return_value=True)
     client.set_airduct_mode = MagicMock(return_value=True)
+    client.set_fan_speed = MagicMock(return_value=True)
     return client
 
 
@@ -359,9 +360,9 @@ async def test_fast_path_skips_airduct_pin_when_already_heating(scheduler, item,
 # ---------------------------------------------------------------------------
 
 
-def test_rollback_preheat_pin_unwinds_all_three_actions(scheduler):
-    """Pin contains all three keys → three cleanup commands fire, pin dict shrinks."""
-    scheduler._preheat_pin[PRINTER_ID] = {"bed", "chamber", "airduct"}
+def test_rollback_preheat_pin_unwinds_all_actions(scheduler):
+    """Every heater, flap, and temporary circulation-fan action is unwound."""
+    scheduler._preheat_pin[PRINTER_ID] = {"bed", "chamber", "airduct", "aux_fan"}
     client = _make_client()
 
     with patch("backend.app.services.print_scheduler.printer_manager") as pm:
@@ -371,6 +372,7 @@ def test_rollback_preheat_pin_unwinds_all_three_actions(scheduler):
     client.set_bed_temperature.assert_called_once_with(0)
     client.set_chamber_temperature.assert_called_once_with(0)
     client.set_airduct_mode.assert_called_once_with("cooling")
+    client.set_fan_speed.assert_called_once_with(2, 0)
     assert PRINTER_ID not in scheduler._preheat_pin
 
 
@@ -386,6 +388,7 @@ def test_rollback_preheat_pin_only_unwinds_registered_keys(scheduler):
     client.set_bed_temperature.assert_called_once_with(0)
     client.set_chamber_temperature.assert_not_called()
     client.set_airduct_mode.assert_not_called()
+    client.set_fan_speed.assert_not_called()
 
 
 def test_rollback_preheat_pin_noop_when_pin_absent(scheduler):
@@ -411,11 +414,12 @@ def test_rollback_preheat_pin_noop_when_client_missing(scheduler):
 
 def test_rollback_preheat_pin_swallows_setter_exceptions(scheduler):
     """A setter raising must not propagate — the interesting exception is upstream."""
-    scheduler._preheat_pin[PRINTER_ID] = {"bed", "chamber", "airduct"}
+    scheduler._preheat_pin[PRINTER_ID] = {"bed", "chamber", "airduct", "aux_fan"}
     client = _make_client()
     client.set_bed_temperature.side_effect = RuntimeError("mqtt down")
     client.set_chamber_temperature.side_effect = RuntimeError("mqtt down")
     client.set_airduct_mode.side_effect = RuntimeError("mqtt down")
+    client.set_fan_speed.side_effect = RuntimeError("mqtt down")
 
     with patch("backend.app.services.print_scheduler.printer_manager") as pm:
         pm.get_client.return_value = client

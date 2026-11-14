@@ -2565,6 +2565,8 @@ export default {
     preheatMaxWaitHelp: 'Begränsning för kammaruppvärmningsfasen innan den hoppar över.',
     preheatSoak: 'Varmhållning (sekunder)',
     preheatSoakHelp: 'Hålltid efter att måltemperaturen nåtts eller max-väntetiden passerat.',
+    preheatP1AuxFanSpeed: 'P1-hjälpfläkt under förvärmning (%)',
+    preheatP1AuxFanSpeedHelp: 'Endast P1P/P1S. 0 stänger av den. Kör under uppvärmning och varmhållning för att sprida bäddvärmen och stannar före uppladdning.',
     preheatHardwareTitle: 'Handlingssätt per skrivare:',
     preheatHardwareDetail: 'H2C/H2D/H2D Pro/H2S/X2D/X1E värmer kammaren aktivt via M141. X1C/P2S läser kammartemperatur men förlitar sig på byggplattans byggplattsvärme. P1S/P1P/A1/A1 Mini har ingen kammarsensor — endast varmhållningstimern gäller.',
     preheatPerItemDesc: 'Värm byggplattan och kammaren före denna utskrift startar. Standard är den globala inställningen Inställningar → Arbetsflöde.',

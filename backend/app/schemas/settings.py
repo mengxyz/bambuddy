@@ -539,6 +539,15 @@ class AppSettings(BaseModel):
         le=1800,
         description="Additional hold time at temperature after the chamber reaches the target (or after max_wait_seconds elapses). 0 = no soak.",
     )
+    preheat_p1_aux_fan_speed: int = Field(
+        default=0,
+        ge=0,
+        le=100,
+        description=(
+            "Auxiliary fan speed in percent during preheat warm-up and soak on P1P/P1S printers. "
+            "0 disables the fan; a non-zero speed is stopped before print upload begins."
+        ),
+    )
     queue_keep_bed_warm: bool = Field(
         default=False,
         description=(
@@ -860,6 +869,7 @@ class AppSettingsUpdate(BaseModel):
     preheat_filament_targets: str | None = None
     preheat_max_wait_seconds: int | None = Field(default=None, ge=60, le=3600)
     preheat_soak_seconds: int | None = Field(default=None, ge=0, le=1800)
+    preheat_p1_aux_fan_speed: int | None = Field(default=None, ge=0, le=100)
     queue_keep_bed_warm: bool | None = None
     queue_keep_warm_bed_temp: int | None = Field(default=None, ge=40, le=110)
     queue_keep_warm_max_minutes: int | None = Field(default=None, ge=5, le=480)

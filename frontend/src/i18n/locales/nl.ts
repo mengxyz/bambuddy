@@ -2566,6 +2566,8 @@ export default {
     preheatMaxWaitHelp: 'Maximale duur van de opwarmfase van de kamer voordat wordt doorgegaan.',
     preheatSoak: 'Stabiliseren (seconden)',
     preheatSoakHelp: 'Wachttijd nadat het doel is bereikt of de maximale wachttijd is verstreken.',
+    preheatP1AuxFanSpeed: 'P1-hulpventilator tijdens voorverwarmen (%)',
+    preheatP1AuxFanSpeedHelp: 'Alleen P1P/P1S. 0 schakelt hem uit. Draait tijdens opwarmen en stabiliseren om bedwarmte te verdelen en stopt vóór de upload.',
     preheatHardwareTitle: 'Gedrag per printer:',
     preheatHardwareDetail: 'H2C/H2D/H2D Pro/H2S/X2D/X1E verwarmen de kamer actief via M141. X1C/P2S lezen de kamertemperatuur maar vertrouwen op stralingswarmte van het bed. P1S/P1P/A1/A1 Mini hebben geen kamersensor — alleen de stabilisatietimer is van toepassing.',
     preheatPerItemDesc: 'Verwarm bed en kamer voordat deze afdruk start. Standaard wordt de globale schakelaar Instellingen → Workflow gebruikt.',
