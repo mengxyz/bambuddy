@@ -1,6 +1,8 @@
 name: Publish GHCR Image
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       set_latest:
@@ -53,6 +55,7 @@ jobs:
           images: ${{ steps.image.outputs.name }}
           tags: |
             type=raw,value=${{ steps.image.outputs.version }}
+            type=raw,value=dev,enable=${{ github.event_name == 'push' }}
             type=raw,value=latest,enable=${{ inputs.set_latest }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
