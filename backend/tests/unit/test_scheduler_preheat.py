@@ -93,6 +93,8 @@ def _external_chamber_binding(*, printer_id: int, queue_item_id: int, target: in
         ventilation_ready_entity_id="binary_sensor.chamber_ventilation_ready",
         enabled=True,
         strict=strict,
+        manual_duration_minutes=240,
+        timer_renewal_enabled=True,
         owner_queue_item_id=queue_item_id,
         owned_target=target,
         owned_duration_minutes=15,
@@ -670,6 +672,44 @@ async def test_external_chamber_waits_for_ha_command_state_to_propagate(schedule
     wait_for_propagation.assert_awaited_once_with(item.id, 3.0)
     client.set_bed_temperature.assert_called_once_with(60)
     client.set_chamber_temperature.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_external_chamber_without_live_renewal_sends_configured_duration_once(scheduler, item, archive):
+    db = AsyncMock()
+    client = _make_client()
+    item.preheat_override = "on"
+    item.preheat_chamber_target_override = 60
+    binding = _external_chamber_binding(printer_id=7, queue_item_id=item.id, target=60)
+    binding.timer_renewal_enabled = False
+    binding.manual_duration_minutes = 240
+    db.scalar.return_value = binding
+    applied = {
+        "heater_ready": True,
+        "mode": "heat",
+        "target_temperature": 60,
+        "current_temperature": 60,
+    }
+    command_mode = AsyncMock(return_value=(True, None))
+
+    with (
+        patch.object(scheduler, "_get_bool_setting", AsyncMock(return_value=True)),
+        patch.object(scheduler, "_get_int_setting", _ints(preheat_soak_seconds=0)),
+        patch("backend.app.services.print_scheduler.printer_manager") as pm,
+        patch(
+            "backend.app.services.external_chamber.external_chamber_manager.command_mode",
+            command_mode,
+        ),
+        patch(
+            "backend.app.services.external_chamber.external_chamber_manager.get_status",
+            MagicMock(return_value=applied),
+        ),
+    ):
+        pm.get_client.return_value = client
+        pm.get_status.return_value = _make_state(60.0, 0.0)
+        assert await scheduler._preheat_and_soak(db, item, _make_printer("P1S"), archive) is True
+
+    command_mode.assert_awaited_once_with(db, binding, "heat", 60, 240, queue_item_id=item.id)
 
 
 @pytest.mark.asyncio

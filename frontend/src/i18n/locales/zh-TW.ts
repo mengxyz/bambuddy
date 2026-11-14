@@ -1,6 +1,6 @@
 export default {
   externalChamberCooling: { mode: '腔體模式', heat: '加熱', cool: '冷卻', selectVentilationReady: '選擇通風就緒實體', selectVentilationFan: '選擇通風風扇（選用）', coolingFanPercentage: '冷卻風扇最大值（%）', coolingNotConfigured: '尚未設定冷卻' },
-  externalChamber: { title: '外部機艙加熱器', description: '將 Home Assistant 溫控器用作印表機機艙加熱器。', add: '新增加熱器', saved: '外部機艙加熱器已儲存', selectPrinter: '選擇印表機', selectClimate: '選擇溫控實體', selectDuration: '選擇時長實體', selectHeaterReady: '選擇加熱器就緒實體', strict: '嚴格就緒檢查', strictDescription: '控制器未就緒時停止佇列工作傳送。', manualDuration: '手動時長（分鐘）', empty: '尚未設定外部機艙加熱器。' },
+  externalChamber: { title: '外部機艙加熱器', description: '將 Home Assistant 溫控器用作印表機機艙加熱器。', add: '新增加熱器', saved: '外部機艙加熱器已儲存', selectPrinter: '選擇印表機', selectClimate: '選擇溫控實體', selectDuration: '選擇時長實體', selectHeaterReady: '選擇加熱器就緒實體', strict: '嚴格就緒檢查', strictDescription: '控制器未就緒時停止佇列工作傳送。', manualDuration: '手動時長（分鐘）', timerRenewal: '列印時續期計時器', timerRenewalDescription: '每 5 分鐘更新一次 15 分鐘安全計時器。若修改計時器會重新啟動控制器，請停用；設定的時長只會在開始時傳送一次。', empty: '尚未設定外部機艙加熱器。' },
   // Navigation
   nav: {
     printers: '印表機',

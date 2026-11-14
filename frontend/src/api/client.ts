@@ -802,6 +802,7 @@ export interface ExternalChamberStatus {
   fault_notified: boolean;
   strict: boolean;
   manual_duration_minutes: number;
+  timer_renewal_enabled: boolean;
   cooling_fan_percentage: number;
 }
 
@@ -817,6 +818,7 @@ export interface ExternalChamberBinding {
   enabled: boolean;
   strict: boolean;
   manual_duration_minutes: number;
+  timer_renewal_enabled: boolean;
   cooling_fan_percentage: number;
   owner_queue_item_id: number | null;
   owned_target: number | null;
@@ -5563,7 +5565,7 @@ export const api = {
     }),
   createExternalChamberBinding: (data: Omit<ExternalChamberBinding, 'id' | 'owner_queue_item_id' | 'owned_target' | 'owned_duration_minutes' | 'owned_mode' | 'owned_fan_percentage' | 'lifecycle_state' | 'lease_renewed_at' | 'fault_notified' | 'created_at' | 'updated_at'> & { ventilation_ready_entity_id: string }) =>
     request<ExternalChamberBinding>('/ha-chamber-heaters/', { method: 'POST', body: JSON.stringify(data) }),
-  updateExternalChamberBinding: (id: number, data: Partial<Pick<ExternalChamberBinding, 'printer_id' | 'name' | 'climate_entity_id' | 'duration_entity_id' | 'heater_ready_entity_id' | 'ventilation_ready_entity_id' | 'ventilation_fan_entity_id' | 'enabled' | 'strict' | 'manual_duration_minutes' | 'cooling_fan_percentage'>>) =>
+  updateExternalChamberBinding: (id: number, data: Partial<Pick<ExternalChamberBinding, 'printer_id' | 'name' | 'climate_entity_id' | 'duration_entity_id' | 'heater_ready_entity_id' | 'ventilation_ready_entity_id' | 'ventilation_fan_entity_id' | 'enabled' | 'strict' | 'manual_duration_minutes' | 'timer_renewal_enabled' | 'cooling_fan_percentage'>>) =>
     request<ExternalChamberBinding>(`/ha-chamber-heaters/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteExternalChamberBinding: (id: number) =>
     request<{ message: string }>(`/ha-chamber-heaters/${id}`, { method: 'DELETE' }),

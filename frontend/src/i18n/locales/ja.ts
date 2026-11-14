@@ -1,6 +1,6 @@
 export default {
   externalChamberCooling: { mode: 'チャンバーモード', heat: '加熱', cool: '冷却', selectVentilationReady: '換気準備完了エンティティを選択', selectVentilationFan: '換気ファンを選択（任意）', coolingFanPercentage: '冷却ファン最大値（%）', coolingNotConfigured: '冷却が未設定です' },
-  externalChamber: { title: '外部チャンバーヒーター', description: 'Home Assistant の空調コントローラーをプリンターのチャンバーヒーターとして使用します。', add: 'ヒーターを追加', saved: '外部チャンバーヒーターを保存しました', selectPrinter: 'プリンターを選択', selectClimate: '空調エンティティを選択', selectDuration: '時間エンティティを選択', selectHeaterReady: 'ヒーター準備完了エンティティを選択', strict: '厳格な準備確認', strictDescription: 'コントローラーが準備未完了の場合、キューの送信を停止します。', manualDuration: '手動時間（分）', empty: '外部チャンバーヒーターは設定されていません。' },
+  externalChamber: { title: '外部チャンバーヒーター', description: 'Home Assistant の空調コントローラーをプリンターのチャンバーヒーターとして使用します。', add: 'ヒーターを追加', saved: '外部チャンバーヒーターを保存しました', selectPrinter: 'プリンターを選択', selectClimate: '空調エンティティを選択', selectDuration: '時間エンティティを選択', selectHeaterReady: 'ヒーター準備完了エンティティを選択', strict: '厳格な準備確認', strictDescription: 'コントローラーが準備未完了の場合、キューの送信を停止します。', manualDuration: '手動時間（分）', timerRenewal: '印刷中にタイマーを更新', timerRenewalDescription: '15分の安全タイマーを5分ごとに更新します。タイマー変更でコントローラーが再起動する場合は無効にしてください。設定時間は開始時に一度だけ送信されます。', empty: '外部チャンバーヒーターは設定されていません。' },
   // Navigation
   nav: {
     printers: 'プリンター',

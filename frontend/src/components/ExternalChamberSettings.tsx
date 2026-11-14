@@ -25,6 +25,7 @@ const initialForm = () => ({
   enabled: true,
   strict: false,
   manual_duration_minutes: 240,
+  timer_renewal_enabled: true,
   cooling_fan_percentage: 70,
 });
 
@@ -237,6 +238,7 @@ export function ExternalChamberSettings() {
       enabled: binding.enabled,
       strict: binding.strict,
       manual_duration_minutes: binding.manual_duration_minutes,
+      timer_renewal_enabled: binding.timer_renewal_enabled,
       cooling_fan_percentage: binding.cooling_fan_percentage,
     });
     setShowForm(true);
@@ -394,6 +396,17 @@ export function ExternalChamberSettings() {
                   onChange={(event) => setForm({ ...form, manual_duration_minutes: Number(event.target.value) })}
                 />
               </div>
+              <div className="flex items-center justify-between gap-4 md:col-span-2">
+                <div>
+                  <p className="text-sm text-white">{t('externalChamber.timerRenewal')}</p>
+                  <p className="text-xs text-bambu-gray">{t('externalChamber.timerRenewalDescription')}</p>
+                </div>
+                <Toggle
+                  checked={form.timer_renewal_enabled}
+                  disabled={mappingsLocked}
+                  onChange={(timer_renewal_enabled) => setForm({ ...form, timer_renewal_enabled })}
+                />
+              </div>
               <div>
                 <label className="mb-1 block text-sm text-bambu-gray">
                   {t('externalChamberCooling.coolingFanPercentage')}
@@ -544,6 +557,18 @@ export function ExternalChamberSettings() {
                           update.mutate({ id: binding.id, data: { manual_duration_minutes: value } });
                         }
                       }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-sm text-white">{t('externalChamber.timerRenewal')}</p>
+                      <p className="text-xs text-bambu-gray">{t('externalChamber.timerRenewalDescription')}</p>
+                    </div>
+                    <Toggle
+                      checked={binding.timer_renewal_enabled}
+                      disabled={update.isPending || binding.owner_queue_item_id != null}
+                      onChange={(timer_renewal_enabled) =>
+                        update.mutate({ id: binding.id, data: { timer_renewal_enabled } })}
                     />
                   </div>
                 </CardContent>

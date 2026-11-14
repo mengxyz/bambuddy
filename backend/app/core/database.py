@@ -2465,6 +2465,15 @@ async def _run_migrations(conn):
     await _safe_execute(
         conn, "ALTER TABLE external_chamber_bindings ADD COLUMN cooling_fan_percentage INTEGER NOT NULL DEFAULT 70"
     )
+    if is_sqlite():
+        await _safe_execute(
+            conn, "ALTER TABLE external_chamber_bindings ADD COLUMN timer_renewal_enabled BOOLEAN NOT NULL DEFAULT 1"
+        )
+    else:
+        await _safe_execute(
+            conn,
+            "ALTER TABLE external_chamber_bindings ADD COLUMN timer_renewal_enabled BOOLEAN NOT NULL DEFAULT TRUE",
+        )
     await _safe_execute(conn, "ALTER TABLE external_chamber_bindings ADD COLUMN owned_mode VARCHAR(8)")
     await _safe_execute(conn, "ALTER TABLE external_chamber_bindings ADD COLUMN owned_fan_percentage INTEGER")
     await _safe_execute(conn, "ALTER TABLE print_queue ADD COLUMN preheat_chamber_mode_override VARCHAR(8)")

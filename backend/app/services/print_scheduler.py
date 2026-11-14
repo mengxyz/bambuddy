@@ -7858,7 +7858,6 @@ class PrintScheduler:
         from backend.app.models.external_chamber_binding import ExternalChamberBinding
         from backend.app.services.external_chamber import (
             COMMAND_PROPAGATION_GRACE_SECONDS,
-            LEASE_MINUTES,
             STATE_FAILURE_CONFIRMATIONS,
             external_chamber_manager,
         )
@@ -7898,7 +7897,7 @@ class PrintScheduler:
                     external_binding,
                     chamber_mode,
                     chamber_target,
-                    LEASE_MINUTES,
+                    external_chamber_manager.session_duration_minutes(external_binding),
                     queue_item_id=item.id,
                 )
             if not external_ok:

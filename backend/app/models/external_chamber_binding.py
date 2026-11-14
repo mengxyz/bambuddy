@@ -32,6 +32,7 @@ class ExternalChamberBinding(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     strict: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     manual_duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=240)
+    timer_renewal_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     cooling_fan_percentage: Mapped[int] = mapped_column(Integer, nullable=False, default=70)
 
     # Persist queue ownership so restart recovery never mistakes unrelated

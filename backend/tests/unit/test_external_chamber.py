@@ -6,6 +6,8 @@ import pytest
 from backend.app.models.external_chamber_binding import ExternalChamberBinding
 from backend.app.services.external_chamber import (
     COMMAND_PROPAGATION_GRACE_SECONDS,
+    LEASE_MINUTES,
+    LEASE_RENEW_SECONDS,
     STATE_FAILURE_CONFIRMATIONS,
     ExternalChamberManager,
     parse_controller_state,
@@ -70,6 +72,8 @@ def _binding():
         heater_ready_entity_id="binary_sensor.chamber_heater_ready",
         ventilation_ready_entity_id="binary_sensor.chamber_ventilation_ready",
         ventilation_fan_entity_id="fan.chamber_ventilation",
+        manual_duration_minutes=240,
+        timer_renewal_enabled=True,
         cooling_fan_percentage=70,
     )
 
@@ -261,3 +265,29 @@ def test_manual_takeover_requires_consecutive_observations_after_command_grace()
     assert manager._ownership_mismatch_confirmed(binding, mismatched=True) is False
     assert manager._ownership_mismatch_confirmed(binding, mismatched=False) is False
     assert manager._ownership_mismatch_confirmed(binding, mismatched=True) is False
+
+
+def test_timer_renewal_can_be_disabled_for_controllers_that_restart_on_parameter_changes():
+    manager = ExternalChamberManager()
+    binding = _binding()
+
+    assert manager.session_duration_minutes(binding) == LEASE_MINUTES
+    binding.lease_renewed_at = utcnow_naive() - timedelta(seconds=LEASE_RENEW_SECONDS + 1)
+    assert manager.timer_renewal_due(binding) is True
+
+    binding.timer_renewal_enabled = False
+    assert manager.session_duration_minutes(binding) == 240
+    assert manager.timer_renewal_due(binding) is False
+
+
+def test_active_print_readiness_failure_requires_three_observations():
+    manager = ExternalChamberManager()
+    binding = _binding()
+
+    for _ in range(STATE_FAILURE_CONFIRMATIONS - 1):
+        assert manager._readiness_failure_confirmed(binding, failed=True) is False
+    assert manager._readiness_failure_confirmed(binding, failed=True) is True
+
+    assert manager._readiness_failure_confirmed(binding, failed=True) is False
+    assert manager._readiness_failure_confirmed(binding, failed=False) is False
+    assert manager._readiness_failure_confirmed(binding, failed=True) is False

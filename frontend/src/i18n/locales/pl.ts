@@ -20,6 +20,8 @@ export default {
     strict: 'Ścisła kontrola gotowości',
     strictDescription: 'Zatrzymaj wysyłanie kolejki, gdy kontroler nie jest gotowy.',
     manualDuration: 'Czas ręczny (minuty)',
+    timerRenewal: 'Odnawiaj timer podczas drukowania',
+    timerRenewalDescription: 'Odświeża 15-minutowy timer bezpieczeństwa co 5 minut. Wyłącz, jeśli zmiana timera restartuje kontroler; ustawiony czas zostanie wysłany jeden raz.',
     empty: 'Nie skonfigurowano zewnętrznych grzałek komory.',
   },
   // Navigation

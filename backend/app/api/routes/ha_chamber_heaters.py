@@ -221,6 +221,8 @@ async def update_binding(
     }
     if binding.owner_queue_item_id is not None and ("printer_id" in updates or entity_fields.intersection(updates)):
         raise HTTPException(409, "Printer and Home Assistant entities cannot be changed during an active session")
+    if binding.owner_queue_item_id is not None and "timer_renewal_enabled" in updates:
+        raise HTTPException(409, "Timer renewal cannot be changed during an active session")
     if updates.get("enabled") is False and binding.enabled and binding.owner_queue_item_id is not None:
         if not await external_chamber_manager.command_off(db, binding):
             raise HTTPException(409, "Cannot disable the binding until its active session can be stopped safely")

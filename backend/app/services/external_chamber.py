@@ -137,6 +137,7 @@ class ExternalChamberManager:
     def __init__(self):
         self._cache: dict[int, dict] = {}
         self._ownership_mismatch_counts: dict[int, int] = {}
+        self._readiness_failure_counts: dict[int, int] = {}
         self._stopping = asyncio.Event()
 
     def get_status(self, printer_id: int) -> dict | None:
@@ -146,6 +147,24 @@ class ExternalChamberManager:
     def forget(self, printer_id: int) -> None:
         self._cache.pop(printer_id, None)
         self._ownership_mismatch_counts.pop(printer_id, None)
+        self._readiness_failure_counts.pop(printer_id, None)
+
+    @staticmethod
+    def session_duration_minutes(binding: ExternalChamberBinding) -> int:
+        """Duration sent once at session start.
+
+        Lease-capable controllers get a short fail-safe timer which Bambuddy
+        renews. Controllers that restart on live parameter changes get the
+        configured one-shot duration and no in-flight timer writes.
+        """
+        return LEASE_MINUTES if binding.timer_renewal_enabled is not False else binding.manual_duration_minutes
+
+    @staticmethod
+    def timer_renewal_due(binding: ExternalChamberBinding) -> bool:
+        if binding.timer_renewal_enabled is False:
+            return False
+        renewed = binding.lease_renewed_at
+        return renewed is None or (utcnow_naive() - renewed).total_seconds() >= LEASE_RENEW_SECONDS
 
     def _ownership_mismatch_confirmed(
         self,
@@ -177,6 +196,24 @@ class ExternalChamberManager:
         self._ownership_mismatch_counts.pop(printer_id, None)
         return True
 
+    def _readiness_failure_confirmed(self, binding: ExternalChamberBinding, failed: bool) -> bool:
+        printer_id = binding.printer_id
+        if not failed:
+            self._readiness_failure_counts.pop(printer_id, None)
+            return False
+        confirmations = self._readiness_failure_counts.get(printer_id, 0) + 1
+        if confirmations < STATE_FAILURE_CONFIRMATIONS:
+            self._readiness_failure_counts[printer_id] = confirmations
+            logger.warning(
+                "External chamber readiness failure for printer %s (%d/%d); waiting for confirmation",
+                printer_id,
+                confirmations,
+                STATE_FAILURE_CONFIRMATIONS,
+            )
+            return False
+        self._readiness_failure_counts.pop(printer_id, None)
+        return True
+
     async def configure(self, db: AsyncSession) -> bool:
         settings = await get_homeassistant_settings(db)
         homeassistant_service.configure(settings["ha_url"], settings["ha_token"])
@@ -204,6 +241,7 @@ class ExternalChamberManager:
         status["name"] = binding.name
         status["strict"] = binding.strict
         status["manual_duration_minutes"] = binding.manual_duration_minutes
+        status["timer_renewal_enabled"] = binding.timer_renewal_enabled is not False
         status["cooling_fan_percentage"] = binding.cooling_fan_percentage
         self._cache[binding.printer_id] = status
         return status
@@ -301,6 +339,7 @@ class ExternalChamberManager:
             return False, f"External chamber controller rejected the {mode} command"
         if queue_item_id is not None:
             self._ownership_mismatch_counts.pop(binding.printer_id, None)
+            self._readiness_failure_counts.pop(binding.printer_id, None)
             binding.owner_queue_item_id = queue_item_id
             binding.owned_target = target
             binding.owned_duration_minutes = duration_minutes
@@ -344,6 +383,7 @@ class ExternalChamberManager:
 
     async def relinquish(self, db: AsyncSession, binding: ExternalChamberBinding) -> None:
         self._ownership_mismatch_counts.pop(binding.printer_id, None)
+        self._readiness_failure_counts.pop(binding.printer_id, None)
         binding.owner_queue_item_id = None
         binding.owned_target = None
         binding.owned_duration_minutes = None
@@ -417,10 +457,12 @@ class ExternalChamberManager:
                         status = await self.refresh_binding(db, binding)
                         if binding.owner_queue_item_id is None:
                             self._ownership_mismatch_counts.pop(binding.printer_id, None)
+                            self._readiness_failure_counts.pop(binding.printer_id, None)
                             continue
 
                         if binding.lifecycle_state == "stopping":
                             self._ownership_mismatch_counts.pop(binding.printer_id, None)
+                            self._readiness_failure_counts.pop(binding.printer_id, None)
                             if status["mode"] == "off":
                                 fan_stopped = (
                                     not binding.ventilation_fan_entity_id
@@ -483,7 +525,10 @@ class ExternalChamberManager:
                             if owned_mode == "heat"
                             else status.get("ventilation_ready", False)
                         )
-                        if not mode_ready and active_print:
+                        readiness_failed = not mode_ready and active_print
+                        if readiness_failed and not self._readiness_failure_confirmed(binding, True):
+                            continue
+                        if readiness_failed:
                             binding.lifecycle_state = "fault"
                             if not binding.fault_notified:
                                 client = printer_manager.get_client(binding.printer_id)
@@ -506,26 +551,31 @@ class ExternalChamberManager:
                                 )
                             continue
 
+                        self._readiness_failure_confirmed(binding, False)
+
                         if mode_ready and binding.lifecycle_state == "fault":
-                            # Restore the owned climate mode, but deliberately never auto-resume.
+                            # Controllers with live renewal disabled may restart
+                            # whenever any parameter is written. Their recovered
+                            # mode/target already passed ownership validation, so
+                            # leave the controller untouched and never auto-resume.
                             fault_was_notified = binding.fault_notified
-                            ok, _ = await self.command_mode(
-                                db,
-                                binding,
-                                owned_mode,
-                                int(binding.owned_target or 0),
-                                LEASE_MINUTES,
-                                queue_item_id=binding.owner_queue_item_id,
-                            )
+                            if binding.timer_renewal_enabled is not False:
+                                ok, _ = await self.command_mode(
+                                    db,
+                                    binding,
+                                    owned_mode,
+                                    int(binding.owned_target or 0),
+                                    int(binding.owned_duration_minutes or LEASE_MINUTES),
+                                    queue_item_id=binding.owner_queue_item_id,
+                                )
+                            else:
+                                ok = True
                             if ok:
                                 binding.lifecycle_state = "paused_inspection"
                                 binding.fault_notified = fault_was_notified
                                 await db.commit()
 
-                        renewed = binding.lease_renewed_at
-                        renewal_due = (
-                            renewed is None or (utcnow_naive() - renewed).total_seconds() >= LEASE_RENEW_SECONDS
-                        )
+                        renewal_due = self.timer_renewal_due(binding)
                         workflow_active = (
                             active_print
                             or item.status == "printing"

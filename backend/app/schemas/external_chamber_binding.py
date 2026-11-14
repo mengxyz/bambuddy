@@ -18,6 +18,7 @@ class ExternalChamberBindingBase(BaseModel):
     enabled: bool = True
     strict: bool = False
     manual_duration_minutes: int = Field(default=240, ge=15, le=1440, multiple_of=15)
+    timer_renewal_enabled: bool = True
     cooling_fan_percentage: int = Field(default=70, ge=0, le=100)
 
     @field_validator(
@@ -59,6 +60,7 @@ class ExternalChamberBindingUpdate(IgnoresNullForRequiredColumns):
     enabled: bool | None = None
     strict: bool | None = None
     manual_duration_minutes: int | None = Field(default=None, ge=15, le=1440, multiple_of=15)
+    timer_renewal_enabled: bool | None = None
     cooling_fan_percentage: int | None = Field(default=None, ge=0, le=100)
 
 

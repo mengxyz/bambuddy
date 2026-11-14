@@ -1,6 +1,6 @@
 export default {
   externalChamberCooling: { mode: '챔버 모드', heat: '가열', cool: '냉각', selectVentilationReady: '환기 준비 엔티티 선택', selectVentilationFan: '환기 팬 선택(선택 사항)', coolingFanPercentage: '냉각 팬 최대값(%)', coolingNotConfigured: '냉각이 구성되지 않음' },
-  externalChamber: { title: '외부 챔버 히터', description: 'Home Assistant 온도 조절기를 프린터 챔버 히터로 사용합니다.', add: '히터 추가', saved: '외부 챔버 히터를 저장했습니다', selectPrinter: '프린터 선택', selectClimate: '온도 조절 엔티티 선택', selectDuration: '시간 엔티티 선택', selectHeaterReady: '히터 준비 엔티티 선택', strict: '엄격한 준비 상태', strictDescription: '컨트롤러가 준비되지 않으면 대기열 전송을 중지합니다.', manualDuration: '수동 시간(분)', empty: '설정된 외부 챔버 히터가 없습니다.' },
+  externalChamber: { title: '외부 챔버 히터', description: 'Home Assistant 온도 조절기를 프린터 챔버 히터로 사용합니다.', add: '히터 추가', saved: '외부 챔버 히터를 저장했습니다', selectPrinter: '프린터 선택', selectClimate: '온도 조절 엔티티 선택', selectDuration: '시간 엔티티 선택', selectHeaterReady: '히터 준비 엔티티 선택', strict: '엄격한 준비 상태', strictDescription: '컨트롤러가 준비되지 않으면 대기열 전송을 중지합니다.', manualDuration: '수동 시간(분)', timerRenewal: '인쇄 중 타이머 갱신', timerRenewalDescription: '15분 안전 타이머를 5분마다 갱신합니다. 타이머 변경 시 컨트롤러가 재시작되면 비활성화하세요. 설정된 시간은 시작할 때 한 번만 전송됩니다.', empty: '설정된 외부 챔버 히터가 없습니다.' },
   nav: {
     printers: '프린터',
     archives: '아카이브',
